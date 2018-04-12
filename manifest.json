@@ -1,0 +1,39 @@
+{
+  "name": "fluffy",
+  "description": "yo!",
+  "version": "1.0",
+  "manifest_version": 2,
+  "background": {
+    "scripts": [
+      "scripts/localforage.min.js",
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "browser_action": {
+    "default_icon": "images/icon16.png",
+    "default_title": "Hi there!",
+    "default_popup": "popup.html"
+  },
+  "omnibox": { "keyword" : "xizi" },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "css": [
+        "content_scripts.css"
+      ],
+      "js": [
+        "scripts/localforage.min.js",
+        "content_scripts.js"
+      ]
+    }
+  ],
+  "chrome_url_overrides": {
+    "newtab": "tab.html"
+},
+  "icons": {
+    "16": "images/icon16.png"
+  }
+}

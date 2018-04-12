@@ -1,0 +1,24 @@
+#xiziapp {
+    display: none;
+    position: absolute;
+    width: 100%;
+    top: 0;
+    left: 0;
+    background: #eee
+}
+
+#xiziapp>u {
+    position: absolute;
+}
+
+#xiziapp>input {
+    position: absolute;
+    border-radius: 5px;
+    outline: none;
+    border: 1px solid #ddd;
+    padding: 0 3px;
+}
+
+/* .bg {
+    filter: blur(3px);
+} */
