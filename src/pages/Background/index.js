@@ -1,5 +1,7 @@
 import localforage from '@/utils/localforage.min';
 
+let contentPort, popupPort;
+
 const handler = {
     getData: function (data, port) {//查询
         localforage.getItem(data.key).then(val => {
@@ -23,12 +25,21 @@ const handler = {
     },
     delData: function (data, port) {
         localforage.removeItem(data.key)
+    },
+    toContent(msg, port) {
+        // popup发送消息，中转给content
+        contentPort.postMessage(msg);
     }
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    // content发送的消息，在popup、newTab中亦会触发background的监听
-    console.log('background监听到消息', request, sender)
-    // handler[msg.type] && handler[msg.type](msg.data, port)
-    // sendResponse("background返回值");
-})
+chrome.runtime.onConnect.addListener(function (port) {
+    if (port.name === 'content') {
+        contentPort = port;
+    }
+    if (port.name === 'popup') {
+        popupPort = port;
+    }
+    port.onMessage.addListener(function (msg) {
+        handler[msg.type] && handler[msg.type](msg.payload, port);
+    });
+});
