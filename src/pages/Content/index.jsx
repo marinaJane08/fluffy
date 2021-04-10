@@ -35,12 +35,19 @@ const Host = () => {
                     ...state,
                     chooseOn: action.payload
                 }
+            case 'changeRoot':
+                return {
+                    ...state,
+                    chooseOn: false,
+                    root: action.payload
+                }
             default:
                 return state;
         }
     }, {
         appOn: false,
-        chooseOn: false
+        chooseOn: false,
+        root: null
     });
     const { appOn, chooseOn } = state;
     useEffect(() => {

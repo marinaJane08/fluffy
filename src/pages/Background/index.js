@@ -29,9 +29,24 @@ const handler = {
     toContent(msg, port) {
         // popup发送消息，中转给content
         contentPort.postMessage(msg);
+    },
+    setLocal() {
+        chrome.storage.local.set({ key: value }, function () {
+            console.log('Value is set to ' + value);
+        });
+    },
+    getLocal() {
+        // key为null时返回所有数据
+        chrome.storage.local.get(['user1', 'user2'], function (result) {
+            console.log('Value currently is ' + result);
+        });
     }
 }
-
+// 存储区变动
+// chrome.storage.onChanged.addListener(function(changes, areaName){
+//     console.log('Value in '+areaName+' has been changed:');
+//     console.log(changes);
+// });
 chrome.runtime.onConnect.addListener(function (port) {
     if (port.name === 'content') {
         contentPort = port;
