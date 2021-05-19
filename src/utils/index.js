@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 
-moment.locale('zh-cn');
+// moment.locale('zh-cn');
 // window.formatDuration = formatDuration;
 
 // 找共同的根元素
@@ -15,6 +15,18 @@ export const findRoot = (next, prev) => {
         return this.findRoot(next.parentNode, prev);
     }
 }
+
+// 递归元素找到itemWrap根元素
+export const findElParent = (node, isEl = () => false) => {
+    if (isEl(node)) {
+        return node
+    } else if (node.parentNode) {
+        return findElParent(node.parentNode, isEl);
+    } else {
+        return undefined
+    }
+}
+
 // 是否包含该元素
 export const isChild = (target, parent) => {
     if (parent && parent.contains(target)) {
