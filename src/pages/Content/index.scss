@@ -1,0 +1,118 @@
+$wrap: ".fluffy";
+$bg-color:#f4f4f4;
+$line-color:#71cb2d;
+
+#{$wrap} {
+
+    /* boxShadow */
+    @mixin boxShadow {
+        box-shadow: 0 1px 2px -2px rgba(0, 0, 0, .16), 0 3px 6px 0 rgba(0, 0, 0, .12), 0 5px 12px 4px rgba(0, 0, 0, .09) !important;
+    }
+
+    /* 顶部按钮组 */
+    &-operateBtn {
+        @include boxShadow;
+        position: fixed;
+        right: 0;
+        top: 0;
+        z-index: 999999999;
+        padding: 0 10px;
+        text-align: right;
+        background-color: rgba(255, 255, 255, 0.8);
+        user-select:none;
+    }
+
+    /* 鼠标跟随（笔记状态色块） */
+    &-mouseTracker {
+        /* 用fixed才不会出现滚动条 */
+        position: fixed;
+        width: 10px;
+        height: 10px;
+    }
+
+    /* root容器元素 */
+    &-root {
+        height: 100% !important;
+        width: 50% !important;
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        z-index: 99999999 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        background-color: #fff !important;
+        margin: 0 !important;
+        max-width: auto !important;
+        box-sizing: border-box !important;
+    }
+
+    /* 右侧笔记区域容器 */
+    &-mind {
+        position: fixed;
+        top: 0;
+        right: 0;
+        // width: 50%;
+        width: 100%;
+        height: 100%;
+        background-color: $bg-color;
+        // z-index: 99999999;
+    }
+
+    // 测验中
+    &-quizOn {
+        * {
+            // 文字模糊
+            color: transparent !important;
+            text-shadow: #111 0 0 5px !important;
+        }
+
+        // 只显示标记
+        #{$wrap} {
+
+            &-itemWrap,
+            &-point {
+                color: #111 !important;
+                text-shadow: none !important;
+            }
+
+            &-point {
+                padding: 0 4px;
+            }
+        }
+    }
+
+    // 测验暂停
+    &-quizPause {
+        #{$wrap} {
+            &-point {
+                display: none;
+            }
+        }
+    }
+
+    /* mark */
+    &-itemWrap {
+        display: initial;
+        background: rgba(255, 255, 0, .5);
+    }
+
+    // 原文
+    &-origin {
+        display: none;
+        visibility: hidden;
+        user-select: none;
+        pointer-events: none;
+    }
+
+    // 关键词
+    &-point {
+        // 光标在最后时不显示，必须用inline-block
+        display: inline-block;
+        background: rgba(0, 255, 0, 0.5);
+    }
+
+    // mark聚焦
+    &-markFocus {
+        @include boxShadow;
+    }
+}

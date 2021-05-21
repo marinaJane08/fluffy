@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, useContext } from 'react';
 import { render } from 'react-dom';
-import { findElParent } from '@/utils';
+import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent } from '@/utils';
+import './index.scss';
 
 const log = console.log;
 window.log = log;
@@ -37,6 +38,12 @@ const Host = () => {
                     chooseOn: action.payload
                 }
             case 'changeRoot':
+                // 清除原先root的样式
+                state.root && removeClass(state.root);
+                if (action.payload) {
+                    // 添加root样式
+                    addClass(action.payload, 'fluffy-root');
+                }
                 return {
                     ...state,
                     chooseOn: false,
@@ -72,7 +79,7 @@ const Host = () => {
 
     return <HostContext.Provider value={{ state, dispatch }}>
         {showHost
-            ? <div>
+            ? <div className="fluffy-operateBtn">
                 <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
             </div>
             : null
@@ -88,17 +95,26 @@ const ChooseRoot = () => {
     const { appOn, chooseOn } = state;
     const [coord, setCoord] = useState([-100, -100]);
     const on = appOn && chooseOn;
-
+    const hoverTarget = useRef();
     const canChoose = (evt) => {//判断能否进行选择
         return evt.target !== body && evt.target !== html;
     }
+    const addHoverStyle = (el) => {
+        el.style.boxShadow = '#5cb6ff 0px 0px 0px 2px inset';
+        el.style.cursor = 'pointer';
+        // el.style.border = '2px dashed #8BC34A';
+    }
+    const removeHoverStyle = (el) => {
+        el.style.boxShadow = '';
+        el.style.cursor = '';
+        // el.style.border = '';
+    }
     // 鼠标移动元素浮框
-    const mousemove = (evt) => {
+    const mousemove = useCallback((evt) => {
         if (on) {
             if (canChoose(evt)) {
-                evt.target.style.boxShadow = '#5cb6ff 0px 0px 0px 2px inset';
-                evt.target.style.cursor = 'pointer';
-                // evt.target.style.border = '2px dashed #8BC34A';
+                hoverTarget.current = evt.target;
+                addHoverStyle(evt.target);
             }
             // 鼠标移动更新坐标
             if (evt.target === body || evt.target === html) {
@@ -107,38 +123,38 @@ const ChooseRoot = () => {
                 setCoord([-100, -100]);
             }
         }
-    }
+    }, [on]);
     // 鼠标移出恢复样式
-    const mouseout = (evt) => {
+    const mouseout = useCallback((evt) => {
         if (on && canChoose(evt)) {
-            evt.target.style.boxShadow = '';
-            evt.target.style.cursor = '';
-            // evt.target.style.border = '';
+            removeHoverStyle(evt.target);
         }
-    }
+    }, [on]);
     // 鼠标抬起恢复样式、选中元素
-    const mouseup = (evt) => {
+    const mouseup = useCallback((evt) => {
         if (on && canChoose(evt)) {
-            evt.target.style.boxShadow = '';
-            evt.target.style.cursor = '';
+            removeHoverStyle(evt.target);
+            hoverTarget.current = null;
             // 设置root
             dispatch({ type: 'changeRoot', payload: evt.target });
         }
-    }
+    }, [on]);
     // 鼠标移出视区
-    const mouseleave = () => {
+    const mouseleave = useCallback(() => {
         if (on) {
             setCoord([-100, -100]);
         }
-    }
+    }, [on]);
     // 右键退出
-    const contextmenu = (evt) => {
+    const contextmenu = useCallback((evt) => {
         if (on) {
             evt.preventDefault();
+            removeHoverStyle(hoverTarget.current);
+            hoverTarget.current = null;
             setCoord([-100, -100]);
-            dispatch({ type: 'changeRoot', payload: false });
+            dispatch({ type: 'toggleChoose', payload: false });
         }
-    }
+    }, [on]);
     useEffect(() => {
         document.addEventListener('mousemove', mousemove);
         document.addEventListener('mouseout', mouseout);
@@ -169,26 +185,24 @@ const Mark = () => {
     const [mouseX, setMouseX] = useState(null);//鼠标的x坐标
     const on = Boolean(appOn && !chooseOn && root);
     const mousedown = useCallback((evt) => {//鼠标落
-        log(on)
         if (on) {
-            // 判断是否监听对象
-            if (findElParent(evt.target, (node) => typeof node.className === 'string' && node === root)) {
-                setMousedowned(true);
-                setMouseX(evt.clientX);
-                let sl = window.getSelection();
+            setMousedowned(true);
+            setMouseX(evt.clientX);
+            let sl = window.getSelection();
+            if (sl.toString()) {
                 setSl(sl);
-                // 清空鼠标落下前已选中的文字
-                sl.removeAllRanges();
-                // this.pushRange({ type: 'mousedown' });
             }
+            // 清空鼠标落下前已选中的文字
+            sl.removeAllRanges();
+            // this.pushRange({ type: 'mousedown' });
         }
     }, [on]);
-    const mousemove = (evt) => {//鼠标移动
+    const mousemove = useCallback((evt) => {//鼠标移动
         if (on && mousedowned) {
             setMouseX(evt.clientX);
         }
-    }
-    const mouseup = (evt) => {//鼠标起
+    }, [on]);
+    const mouseup = useCallback((evt) => {//鼠标起
         if (on) {
             setMouseX(false);
             if (sl) {
@@ -201,7 +215,7 @@ const Mark = () => {
                 setRangeList([]);
             }
         }
-    }
+    }, [on]);
     const markRange = () => {
         console.log('mark')
     }
