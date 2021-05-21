@@ -19,7 +19,7 @@ $line-color:#71cb2d;
         padding: 0 10px;
         text-align: right;
         background-color: rgba(255, 255, 255, 0.8);
-        user-select:none;
+        user-select: none;
     }
 
     /* 鼠标跟随（笔记状态色块） */
@@ -94,6 +94,23 @@ $line-color:#71cb2d;
     &-itemWrap {
         display: initial;
         background: rgba(255, 255, 0, .5);
+        position: relative;
+
+        &:hover {
+            #{$wrap}-del {
+                display: block;
+            }
+        }
+    }
+
+    &-del {
+        position: absolute;
+        right: -5px;
+        top: -5px;
+        background-color: aqua;
+        width: 10px;
+        height: 10px;
+        display: none;
     }
 
     // 原文

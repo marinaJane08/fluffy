@@ -161,3 +161,16 @@ export const formatDuration = (obj = {}) => {
     });
     return timeString
 }
+
+//创建一个只包含node内容的节点
+export const copyRemoveContents = (node) => {
+    let copyRange = document.createRange();
+    copyRange.selectNodeContents(node);
+    let copyContents = copyRange.cloneContents();
+    try {
+        // 移除被拷贝的节点
+        copyRange.selectNode(node);
+        copyRange.extractContents();
+    } catch (error) { }
+    return copyContents
+}

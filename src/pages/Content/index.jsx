@@ -1,17 +1,19 @@
 import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, useContext } from 'react';
 import { render } from 'react-dom';
-import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent } from '@/utils';
+import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent, copyRemoveContents } from '@/utils';
 import './index.scss';
 
 const log = console.log;
+const dir = console.dir;
 window.log = log;
+window.dir = dir;
 const body = document.body,
     html = body.parentNode;
 
 // 模拟content文章
 let mock = document.createElement('div');
 mock.innerHTML = `<ul>
-<li>地址栏内输入xizi即可搜索笔记啦</li>
+<li style="">地址栏<a class="fluffy-itemWrap"><mark spellcheck="false" data-value="内输">内输</mark><div class="fluffy-origin">内输</div><div class="fluffy-del"></div></a>入xizi即可搜索笔记啦</li>
 <li>在网页里按住<b>ctrl + alt</b>键即可选择文<div>章容器，鼠标左</div>键选择‘问题’，按住<b>ctrl</b>键并用鼠标左键选择‘答案’</li>
 <li>按住<b>ctrl+T</b>或<b>ctrl+N</b>打开新的<div>标<div>签</div>页，完成你</div>的当日任务</li>
 </ul>`
@@ -33,16 +35,20 @@ const Host = () => {
                     appOn: action.payload
                 }
             case 'toggleChoose':
+                if (action.payload) {
+                    // 清除原先root的样式
+                    state.root && removeClass(state.root, 'fluffy-root');
+                }
                 return {
                     ...state,
                     chooseOn: action.payload
                 }
             case 'changeRoot':
-                // 清除原先root的样式
-                state.root && removeClass(state.root);
                 if (action.payload) {
                     // 添加root样式
                     addClass(action.payload, 'fluffy-root');
+                } else {
+                    state.root && addClass(state.root, 'fluffy-root');
                 }
                 return {
                     ...state,
@@ -180,52 +186,79 @@ const Mark = () => {
     const { state, dispatch } = useContext(HostContext);
     const { appOn, chooseOn, root } = state;
     const [sl, setSl] = useState(null);//selection对象
-    const [rangeList, setRangeList] = useState([]);//range的列表
-    const [mousedowned, setMousedowned] = useState(false);//鼠标落状态
-    const [mouseX, setMouseX] = useState(null);//鼠标的x坐标
     const on = Boolean(appOn && !chooseOn && root);
     const mousedown = useCallback((evt) => {//鼠标落
         if (on) {
-            setMousedowned(true);
-            setMouseX(evt.clientX);
-            let sl = window.getSelection();
-            if (sl.toString()) {
-                setSl(sl);
-            }
             // 清空鼠标落下前已选中的文字
-            sl.removeAllRanges();
-            // this.pushRange({ type: 'mousedown' });
-        }
-    }, [on]);
-    const mousemove = useCallback((evt) => {//鼠标移动
-        if (on && mousedowned) {
-            setMouseX(evt.clientX);
+            // sl && sl.removeAllRanges();
         }
     }, [on]);
     const mouseup = useCallback((evt) => {//鼠标起
         if (on) {
-            setMouseX(false);
-            if (sl) {
-                // this.pushRange({ type: 'mouseup' });
-                if (sl.toString()) {
-                    markRange();
+            let sl = window.getSelection();
+            let str = sl.toString();
+            if (str) {
+                let range = sl.getRangeAt(0);// range对象
+                // markRange();//废弃（因为useCallback闭包作用所以调用外部函数时依赖不能更新，故直接写于此处）
+                // 包裹元素
+                let wrap = document.createElement("a");
+                wrap.className = `fluffy-itemWrap`;
+                // 备份元素
+                let origin = document.createElement("div");
+                origin.className = 'fluffy-origin';
+                // 删除元素
+                let del = document.createElement("div");
+                del.className = 'fluffy-del';
+
+                // 添加mark内容
+                wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str}</mark>`;
+                // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
+                let endMarkWrap = findElParent(range.endContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
+                let startMarkWrap = findElParent(range.startContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
+                if (startMarkWrap) {
+                    // 选区范围框住该mark
+                    range.setStartBefore(startMarkWrap);
                 }
-                setMouseX(null);
-                setSl(null);
-                setRangeList([]);
+                if (endMarkWrap) {
+                    range.setEndAfter(endMarkWrap);
+                }
+                // 清空整个选区内容
+                let cloneContents = range.cloneContents(),
+                    // cloneChild = cloneContents.childNodes;
+                    extractContents = range.extractContents(),
+                    cloneChild = extractContents.childNodes;
+                Array.from(cloneChild).map(item => {
+                    origin.appendChild(item);
+                })
+                restoreMarks(origin);
+                wrap.appendChild(origin);
+                wrap.appendChild(del);
+                range.insertNode(wrap);
+                // del.addEventListener('click', delItem.bind(null, wrap));
             }
+            // sl && sl.removeAllRanges();
         }
     }, [on]);
-    const markRange = () => {
-        console.log('mark')
+    const restoreMarks = (item) => {
+        if (item.children) {
+            const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item))
+            fluffyItems.map(i_item => {
+                delItem(i_item)
+            })
+        }
+        return item.className.indexOf('fluffy-itemWrap') > -1 ? item : false
+    }
+    const delItem = (mark) => {//删除mark
+        let child = Array.from(copyRemoveContents(mark.cloneNode(true)).childNodes)
+        if (child.length === 3) {
+            mark.outerHTML = child[1].innerHTML;
+        }
     }
     useEffect(() => {
         document.addEventListener('mousedown', mousedown);
-        document.addEventListener('mousemove', mousemove);
         document.addEventListener('mouseup', mouseup);
         return () => {
             document.removeEventListener('mousedown', mousedown);
-            document.removeEventListener('mousemove', mousemove);
             document.removeEventListener('mouseup', mouseup);
         }
     }, [on]);
