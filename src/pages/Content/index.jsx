@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, useContext } from 'react';
 import { render } from 'react-dom';
 import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent, copyRemoveContents } from '@/utils';
+import KeyCode from '@/utils/KeyCode.js';
 import './index.scss';
 
 const log = console.log;
@@ -185,88 +186,110 @@ const ChooseRoot = () => {
 const Mark = () => {
     const { state, dispatch } = useContext(HostContext);
     const { appOn, chooseOn, root } = state;
-    const [sl, setSl] = useState(null);//selection对象
     const on = Boolean(appOn && !chooseOn && root);
-    const mousedown = useCallback((evt) => {//鼠标落
-        if (on) {
-            // 清空鼠标落下前已选中的文字
-            // sl && sl.removeAllRanges();
-        }
-    }, [on]);
-    const mouseup = useCallback((evt) => {//鼠标起
-        if (on) {
-            let sl = window.getSelection();
-            if (sl.toString()) {
-                let range = sl.getRangeAt(0);// range对象
-                // markRange();//废弃（因为useCallback闭包作用所以调用外部函数时依赖不能更新，故直接写于此处）
-                // 包裹元素
-                let wrap = document.createElement("a");
-                wrap.className = `fluffy-itemWrap`;
-                // 备份元素
-                let origin = document.createElement("div");
-                origin.className = 'fluffy-origin';
-                // 删除元素
-                let del = document.createElement("div");
-                del.className = 'fluffy-del';
 
-                // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
-                let endMarkWrap = findElParent(range.endContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
-                let startMarkWrap = findElParent(range.startContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
-                if (startMarkWrap) {
-                    // 选区范围框住该mark
-                    range.setStartBefore(startMarkWrap);
-                }
-                if (endMarkWrap) {
-                    range.setEndAfter(endMarkWrap);
-                }
-                let str = range.toString();
-                // 添加mark内容
-                wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str}</mark>`;
-                // 清空整个选区内容
-                let cloneContents = range.cloneContents(),
-                    // cloneChild = cloneContents.childNodes;
-                    extractContents = range.extractContents(),
-                    cloneChild = extractContents.childNodes;
-                Array.from(cloneChild).map(item => {
-                    origin.appendChild(item);
-                })
-                restoreMarks(origin);
-                log(root)
-                root.appendChild(origin);
-                wrap.appendChild(del);
-                let markId = new Date().getTime();
-                origin.id = `fluffy-origin-${markId}`;
-                wrap.setAttribute('data-id', markId);
-                range.insertNode(wrap);
-                del.addEventListener('click', delItem.bind(null, wrap));
-            }
-            sl && sl.removeAllRanges();
-        }
-    }, [on]);
-    const restoreMarks = (item) => {
-        if (item.children) {
-            const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item))
-            fluffyItems.map(i_item => {
-                delItem(i_item)
-            })
-        }
-        return item.className.indexOf('fluffy-itemWrap') > -1 ? item : false
-    }
-    const delItem = (mark) => {//删除mark
-        let markId = mark.getAttribute('data-id');
-        let child = Array.from(mark.cloneNode(true).childNodes)
-        if (markId) {
-            let origin = document.getElementById(`fluffy-origin-${markId}`);
-            mark.outerHTML = origin.innerHTML;
-            origin.remove();
-        }
-    }
     useEffect(() => {
+        let startIndex = '';//按下alt键时选中的字符
+        let endIndex = '';//抬起alt键时选中的字符
+
+        const keydown = (evt) => {// 键盘落
+            if (on) {
+                if (evt.keyCode === KeyCode.Alt) {
+                    evt.preventDefault();
+                    startIndex = window.getSelection().toString().length;
+                }
+            }
+        };
+        const keyup = (evt) => {// 键盘起
+            if (on) {
+                if (evt.keyCode === KeyCode.Alt) {
+                    evt.preventDefault();
+                    endIndex = window.getSelection().toString().length;
+                }
+            }
+        };
+        const mousedown = (evt) => {//鼠标落
+            if (on) {
+                // 清空鼠标落下前已选中的文字
+                // sl && sl.removeAllRanges();
+            }
+        };
+        const mouseup = (evt) => {//鼠标起
+            if (on) {
+                let sl = window.getSelection();
+                if (sl.toString()) {
+                    let range = sl.getRangeAt(0);// range对象
+                    // 包裹元素
+                    let wrap = document.createElement("a");
+                    wrap.className = `fluffy-itemWrap`;
+                    // 备份元素
+                    let origin = document.createElement("div");
+                    origin.className = 'fluffy-origin';
+                    // 删除元素
+                    let del = document.createElement("div");
+                    del.className = 'fluffy-del';
+
+                    // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
+                    let endMarkWrap = findElParent(range.endContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
+                    let startMarkWrap = findElParent(range.startContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
+                    if (startMarkWrap) {
+                        // 选区范围框住该mark
+                        range.setStartBefore(startMarkWrap);
+                    }
+                    if (endMarkWrap) {
+                        range.setEndAfter(endMarkWrap);
+                    }
+                    let str = range.toString();
+                    // 添加mark内容
+                    wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, startIndex + (endIndex - startIndex))}</span>${str.slice(startIndex + (endIndex - startIndex))}</mark>`;
+                    // 清空整个选区内容
+                    let cloneContents = range.cloneContents(),
+                        // cloneChild = cloneContents.childNodes;
+                        extractContents = range.extractContents(),
+                        cloneChild = extractContents.childNodes;
+                    Array.from(cloneChild).map(item => {
+                        origin.appendChild(item);
+                    })
+                    restoreMarks(origin);
+                    root.appendChild(origin);
+                    wrap.appendChild(del);
+                    let markId = new Date().getTime();
+                    origin.id = `fluffy-origin-${markId}`;
+                    wrap.setAttribute('data-id', markId);
+                    range.insertNode(wrap);
+                    del.addEventListener('click', delItem.bind(null, wrap));
+                }
+                sl && sl.removeAllRanges();
+            }
+        };
+        const restoreMarks = (item) => {
+            if (item.children) {
+                const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item))
+                fluffyItems.map(i_item => {
+                    delItem(i_item)
+                })
+            }
+            return item.className.indexOf('fluffy-itemWrap') > -1 ? item : false
+        }
+        const delItem = (mark) => {//删除mark
+            let markId = mark.getAttribute('data-id');
+            let child = Array.from(mark.cloneNode(true).childNodes)
+            if (markId) {
+                let origin = document.getElementById(`fluffy-origin-${markId}`);
+                mark.outerHTML = origin.innerHTML;
+                origin.remove();
+            }
+        }
+
         document.addEventListener('mousedown', mousedown);
         document.addEventListener('mouseup', mouseup);
+        document.addEventListener('keydown', keydown);
+        document.addEventListener('keyup', keyup);
         return () => {
             document.removeEventListener('mousedown', mousedown);
             document.removeEventListener('mouseup', mouseup);
+            document.removeEventListener('keydown', keydown);
+            document.removeEventListener('keyup', keyup);
         }
     }, [on]);
     return <mark></mark>
