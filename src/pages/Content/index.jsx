@@ -196,8 +196,7 @@ const Mark = () => {
     const mouseup = useCallback((evt) => {//鼠标起
         if (on) {
             let sl = window.getSelection();
-            let str = sl.toString();
-            if (str) {
+            if (sl.toString()) {
                 let range = sl.getRangeAt(0);// range对象
                 // markRange();//废弃（因为useCallback闭包作用所以调用外部函数时依赖不能更新，故直接写于此处）
                 // 包裹元素
@@ -210,8 +209,6 @@ const Mark = () => {
                 let del = document.createElement("div");
                 del.className = 'fluffy-del';
 
-                // 添加mark内容
-                wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str}</mark>`;
                 // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
                 let endMarkWrap = findElParent(range.endContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
                 let startMarkWrap = findElParent(range.startContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
@@ -222,6 +219,9 @@ const Mark = () => {
                 if (endMarkWrap) {
                     range.setEndAfter(endMarkWrap);
                 }
+                let str = range.toString();
+                // 添加mark内容
+                wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str}</mark>`;
                 // 清空整个选区内容
                 let cloneContents = range.cloneContents(),
                     // cloneChild = cloneContents.childNodes;
@@ -231,12 +231,16 @@ const Mark = () => {
                     origin.appendChild(item);
                 })
                 restoreMarks(origin);
-                wrap.appendChild(origin);
+                log(root)
+                root.appendChild(origin);
                 wrap.appendChild(del);
+                let markId = new Date().getTime();
+                origin.id = `fluffy-origin-${markId}`;
+                wrap.setAttribute('data-id', markId);
                 range.insertNode(wrap);
-                // del.addEventListener('click', delItem.bind(null, wrap));
+                del.addEventListener('click', delItem.bind(null, wrap));
             }
-            // sl && sl.removeAllRanges();
+            sl && sl.removeAllRanges();
         }
     }, [on]);
     const restoreMarks = (item) => {
@@ -249,9 +253,12 @@ const Mark = () => {
         return item.className.indexOf('fluffy-itemWrap') > -1 ? item : false
     }
     const delItem = (mark) => {//删除mark
-        let child = Array.from(copyRemoveContents(mark.cloneNode(true)).childNodes)
-        if (child.length === 3) {
-            mark.outerHTML = child[1].innerHTML;
+        let markId = mark.getAttribute('data-id');
+        let child = Array.from(mark.cloneNode(true).childNodes)
+        if (markId) {
+            let origin = document.getElementById(`fluffy-origin-${markId}`);
+            mark.outerHTML = origin.innerHTML;
+            origin.remove();
         }
     }
     useEffect(() => {
