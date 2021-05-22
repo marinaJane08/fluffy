@@ -189,14 +189,16 @@ const Mark = () => {
     const on = Boolean(appOn && !chooseOn && root);
 
     useEffect(() => {
-        let startIndex = '';//按下alt键时选中的字符
-        let endIndex = '';//抬起alt键时选中的字符
+        let startIndex = 0;//按下alt键时的index
+        let endIndex = 0;//抬起alt键时的index
+        let altPressed = false;//按键中
 
         const keydown = (evt) => {// 键盘落
             if (on) {
                 if (evt.keyCode === KeyCode.Alt) {
                     evt.preventDefault();
                     startIndex = window.getSelection().toString().length;
+                    altPressed = true;
                 }
             }
         };
@@ -205,17 +207,15 @@ const Mark = () => {
                 if (evt.keyCode === KeyCode.Alt) {
                     evt.preventDefault();
                     endIndex = window.getSelection().toString().length;
+                    altPressed = false;
                 }
-            }
-        };
-        const mousedown = (evt) => {//鼠标落
-            if (on) {
-                // 清空鼠标落下前已选中的文字
-                // sl && sl.removeAllRanges();
             }
         };
         const mouseup = (evt) => {//鼠标起
             if (on) {
+                if (altPressed) {
+                    endIndex = window.getSelection().toString().length;
+                }
                 let sl = window.getSelection();
                 if (sl.toString()) {
                     let range = sl.getRangeAt(0);// range对象
@@ -241,11 +241,11 @@ const Mark = () => {
                     }
                     let str = range.toString();
                     // 添加mark内容
-                    wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, startIndex + (endIndex - startIndex))}</span>${str.slice(startIndex + (endIndex - startIndex))}</mark>`;
+                    let sliceEndIndex = startIndex + (endIndex - startIndex);
+                    let pointHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}</mark>`;
+                    wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}</mark>`;
                     // 清空整个选区内容
-                    let cloneContents = range.cloneContents(),
-                        // cloneChild = cloneContents.childNodes;
-                        extractContents = range.extractContents(),
+                    let extractContents = range.extractContents(),
                         cloneChild = extractContents.childNodes;
                     Array.from(cloneChild).map(item => {
                         origin.appendChild(item);
@@ -260,6 +260,8 @@ const Mark = () => {
                     del.addEventListener('click', delItem.bind(null, wrap));
                 }
                 sl && sl.removeAllRanges();
+                startIndex = 0;
+                endIndex = 0;
             }
         };
         const restoreMarks = (item) => {
@@ -273,20 +275,16 @@ const Mark = () => {
         }
         const delItem = (mark) => {//删除mark
             let markId = mark.getAttribute('data-id');
-            let child = Array.from(mark.cloneNode(true).childNodes)
             if (markId) {
                 let origin = document.getElementById(`fluffy-origin-${markId}`);
                 mark.outerHTML = origin.innerHTML;
                 origin.remove();
             }
         }
-
-        document.addEventListener('mousedown', mousedown);
         document.addEventListener('mouseup', mouseup);
         document.addEventListener('keydown', keydown);
         document.addEventListener('keyup', keyup);
         return () => {
-            document.removeEventListener('mousedown', mousedown);
             document.removeEventListener('mouseup', mouseup);
             document.removeEventListener('keydown', keydown);
             document.removeEventListener('keyup', keyup);
