@@ -18,6 +18,7 @@ mock.innerHTML = `<ul>
 <li>在网页里按住<b>ctrl + alt</b>键即可选择文<div>章容器，鼠标左</div>键选择‘问题’，按住<b>ctrl</b>键并用鼠标左键选择‘答案’</li>
 <li>按住<b>ctrl+T</b>或<b>ctrl+N</b>打开新的<div>标<div>签</div>页，完成你</div>的当日任务</li>
 </ul>`
+// mock.innerHTML = `<ul></ul>`;
 document.body.appendChild(mock);
 
 // 容器
@@ -26,6 +27,10 @@ document.body.appendChild(host);
 
 // app的全局数据
 const HostContext = React.createContext();
+// 存储的所有数据
+chrome.storage.sync.get(null, (items) => {
+    log(items)
+})
 
 const Host = () => {
     const [state, dispatch] = useReducer((state, action) => {
@@ -46,10 +51,23 @@ const Host = () => {
                 }
             case 'changeRoot':
                 if (action.payload) {
+                    let rootKey = `${location.origin + location.pathname}`, rootPath;
+                    if (typeof action.payload === 'string') {
+                        action.payload = eval(action.payload);
+                        rootPath = action.payload;
+                    } else {
+                        rootPath = getEvalRoot(action.payload);
+                    }
                     // 添加root样式
                     addClass(action.payload, 'fluffy-root');
+                    chrome.storage.sync.get(rootKey, (items) => {
+                        if (!items[rootKey]) items[rootKey] = {};
+                        items[rootKey].root = rootPath;
+                        chrome.storage.sync.set({ [rootKey]: items[rootKey] });
+                    });
                 } else {
                     state.root && addClass(state.root, 'fluffy-root');
+                    chrome.storage.sync.remove('root')
                 }
                 return {
                     ...state,
@@ -67,6 +85,14 @@ const Host = () => {
     const { appOn, chooseOn } = state;
     const showHost = appOn && !chooseOn;
 
+    const restoreRoot = () => {
+        let pathname = location.origin + location.pathname;
+        chrome.storage.sync.get(pathname, (items) => {
+            if (items[pathname]?.root) {
+                dispatch({ type: 'changeRoot', payload: items[pathname].root });
+            }
+        });
+    }
     useEffect(() => {
         const handler = {
             on: (newValue) => {
@@ -82,8 +108,16 @@ const Host = () => {
         chrome.storage.sync.get({ on: true }, (items) => {
             dispatch({ type: 'toggleAppOn', payload: items.on });
         });
-    }, [])
 
+        restoreRoot();
+        const tabHandler = {
+            restoreRoot,
+        }
+        chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+            tabHandler[msg.type] && tabHandler[msg.type](msg.payload);
+        });
+
+    }, [])
     return <HostContext.Provider value={{ state, dispatch }}>
         {showHost
             ? <div className="fluffy-operateBtn">
@@ -242,6 +276,7 @@ const Mark = () => {
                     let str = range.toString();
                     // 添加mark内容
                     let sliceEndIndex = startIndex + (endIndex - startIndex);
+                    log(str, startIndex, sliceEndIndex)
                     let pointHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}</mark>`;
                     wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}</mark>`;
                     // 清空整个选区内容
