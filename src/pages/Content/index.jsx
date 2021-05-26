@@ -31,6 +31,7 @@ const HostContext = React.createContext();
 chrome.storage.sync.get(null, (items) => {
     log(items)
 })
+// chrome.storage.sync.remove(`${location.origin + location.pathname}`);
 
 const Host = () => {
     const [state, dispatch] = useReducer((state, action) => {
@@ -41,64 +42,107 @@ const Host = () => {
                     appOn: action.payload
                 }
             case 'toggleChoose':
-                if (action.payload) {
-                    // 清除原先root的样式
-                    state.root && removeClass(state.root, 'fluffy-root');
-                }
                 return {
                     ...state,
                     chooseOn: action.payload
                 }
-            case 'changeRoot':
-                if (action.payload) {
-                    let rootKey = `${location.origin + location.pathname}`, rootPath;
-                    if (typeof action.payload === 'string') {
-                        action.payload = eval(action.payload);
-                        rootPath = action.payload;
-                    } else {
-                        rootPath = getEvalRoot(action.payload);
-                    }
-                    // 添加root样式
-                    addClass(action.payload, 'fluffy-root');
-                    chrome.storage.sync.get(rootKey, (items) => {
-                        if (!items[rootKey]) items[rootKey] = {};
-                        items[rootKey].root = rootPath;
-                        chrome.storage.sync.set({ [rootKey]: items[rootKey] });
-                    });
-                } else {
-                    state.root && addClass(state.root, 'fluffy-root');
-                    chrome.storage.sync.remove('root')
-                }
+            case 'toggleRootShow':
                 return {
                     ...state,
-                    chooseOn: false,
-                    root: action.payload
+                    rootShow: action.payload
+                }
+            case 'changeData':
+                return {
+                    ...state,
+                    // data是对象，所以此处是合并
+                    data: { ...state.data, ...action.payload }
+                }
+            case 'changeCurMark':
+                // 高亮需要清空之前选中的样式
+                state.curMark.current && removeClass(state.curMark.current, 'fluffy-markFocus');
+                state.curMark.current = action.payload;
+                state.curMark.current && addClass(state.curMark.current, 'fluffy-markFocus');
+                return {
+                    ...state,
+                    curMark: state.curMark
                 }
             default:
                 return state;
         }
     }, {
-        appOn: true,
-        chooseOn: false,
-        root: null
+        appOn: true,//页面开关
+        chooseOn: false,//选择容器中
+        rootShow: false,//是否显示文章容器
+        data: {},//数据
+        curMark: useRef(),//当前选中的mark
     });
-    const { appOn, chooseOn } = state;
-    const showHost = appOn && !chooseOn;
-
+    const { appOn, chooseOn, rootShow, data } = state;
+    // 初始化时、路由改变时，还原root
     const restoreRoot = () => {
-        let pathname = location.origin + location.pathname;
-        chrome.storage.sync.get(pathname, (items) => {
-            if (items[pathname]?.root) {
-                dispatch({ type: 'changeRoot', payload: items[pathname].root });
+        let pathKey = location.origin + location.pathname;
+        chrome.storage.sync.get(pathKey, (items) => {
+            if (items[pathKey]?.rootPath) {
+                try {
+                    items[pathKey].root = eval(items[pathKey].rootPath);
+                } catch (error) {
+                    log('解析容器出错')
+                }
+            }
+            dispatch({ type: 'changeData', payload: items[pathKey] });
+            if (appOn) {
+                dispatch({ type: 'toggleRootShow', payload: true });
             }
         });
     }
     useEffect(() => {
+        if (appOn) {
+            restoreRoot();
+        } else {
+            dispatch({ type: 'toggleChoose', payload: false });
+            dispatch({ type: 'toggleRootShow', payload: false });
+        }
+    }, [appOn]);
+    useEffect(() => {
+        if (chooseOn) {
+            // 选择前将root样式还原
+            dispatch({ type: 'toggleRootShow', payload: false });
+        } else {
+            // 退出选择后加上root样式
+            dispatch({ type: 'toggleRootShow', payload: true });
+        }
+    }, [chooseOn]);
+    useEffect(() => {
+        // 显示还原样式
+        if (rootShow) {
+            if (data.root) {
+                addClass(data.root, 'fluffy-root');
+                if (data.dataHTML) data.root.innerHTML = data.dataHTML;
+            }
+        } else {
+            if (data.root) {
+                removeClass(data.root, 'fluffy-root');
+                if (data.originHTML) data.root.innerHTML = data.originHTML;
+            }
+        }
+    }, [rootShow, data]);
+    useEffect(() => {
+        let pathKey = location.origin + location.pathname;
+        if (data.root) {
+            // 更新数据
+            chrome.storage.sync.set({ [pathKey]: data });
+        } else {
+            // 清除数据
+            chrome.storage.sync.remove(pathKey);
+        }
+    }, [data]);
+    useEffect(() => {
         const handler = {
             on: (newValue) => {
+                // pop开关联动页面开关
                 dispatch({ type: 'toggleAppOn', payload: newValue });
             }
         }
+        // 监听存储数据
         chrome.storage.onChanged.addListener((changes, namespace) => {
             for (let key in changes) {
                 handler[key] && handler[key](changes[key].newValue, changes[key].oldValue);
@@ -109,15 +153,16 @@ const Host = () => {
             dispatch({ type: 'toggleAppOn', payload: items.on });
         });
 
-        restoreRoot();
         const tabHandler = {
+            // 路由改变
             restoreRoot,
         }
+        // 监听后台通信
         chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             tabHandler[msg.type] && tabHandler[msg.type](msg.payload);
         });
-
     }, [])
+    const showHost = appOn && !chooseOn;
     return <HostContext.Provider value={{ state, dispatch }}>
         {showHost
             ? <div className="fluffy-operateBtn">
@@ -125,17 +170,16 @@ const Host = () => {
             </div>
             : null
         }
-        <ChooseRoot />
-        <Mark />
+        {appOn && <ChooseRoot />}
+        {appOn && <Mark />}
     </HostContext.Provider>
 }
 
 // 选择根容器
 const ChooseRoot = () => {
     const { state, dispatch } = useContext(HostContext);
-    const { appOn, chooseOn } = state;
+    const { chooseOn } = state;
     const [coord, setCoord] = useState([-100, -100]);
-    const on = appOn && chooseOn;
     const hoverTarget = useRef();
     const canChoose = (evt) => {//判断能否进行选择
         return evt.target !== body && evt.target !== html;
@@ -152,7 +196,7 @@ const ChooseRoot = () => {
     }
     // 鼠标移动元素浮框
     const mousemove = useCallback((evt) => {
-        if (on) {
+        if (chooseOn) {
             if (canChoose(evt)) {
                 hoverTarget.current = evt.target;
                 addHoverStyle(evt.target);
@@ -164,38 +208,40 @@ const ChooseRoot = () => {
                 setCoord([-100, -100]);
             }
         }
-    }, [on]);
+    }, [chooseOn]);
     // 鼠标移出恢复样式
     const mouseout = useCallback((evt) => {
-        if (on && canChoose(evt)) {
+        if (chooseOn && canChoose(evt)) {
             removeHoverStyle(evt.target);
         }
-    }, [on]);
+    }, [chooseOn]);
     // 鼠标抬起恢复样式、选中元素
     const mouseup = useCallback((evt) => {
-        if (on && canChoose(evt)) {
+        if (chooseOn && canChoose(evt)) {
             removeHoverStyle(evt.target);
             hoverTarget.current = null;
             // 设置root
-            dispatch({ type: 'changeRoot', payload: evt.target });
+            let root = evt.target;
+            dispatch({ type: 'changeData', payload: { root, rootPath: getEvalRoot(root), originHTML: root.innerHTML } });
+            dispatch({ type: 'toggleChoose', payload: false });
         }
-    }, [on]);
+    }, [chooseOn]);
     // 鼠标移出视区
     const mouseleave = useCallback(() => {
-        if (on) {
+        if (chooseOn) {
             setCoord([-100, -100]);
         }
-    }, [on]);
+    }, [chooseOn]);
     // 右键退出
     const contextmenu = useCallback((evt) => {
-        if (on) {
+        if (chooseOn) {
             evt.preventDefault();
             removeHoverStyle(hoverTarget.current);
             hoverTarget.current = null;
             setCoord([-100, -100]);
             dispatch({ type: 'toggleChoose', payload: false });
         }
-    }, [on]);
+    }, [chooseOn]);
     useEffect(() => {
         document.addEventListener('mousemove', mousemove);
         document.addEventListener('mouseout', mouseout);
@@ -209,7 +255,7 @@ const ChooseRoot = () => {
             document.removeEventListener('mouseleave', mouseleave);
             document.removeEventListener('contextmenu', contextmenu);
         }
-    }, [on]);
+    }, [chooseOn]);
     // 选择状态中，显示鼠标跟随块
     return <div
         className="fluffy-mouseTracker"
@@ -219,9 +265,8 @@ const ChooseRoot = () => {
 
 const Mark = () => {
     const { state, dispatch } = useContext(HostContext);
-    const { appOn, chooseOn, root } = state;
-    const on = Boolean(appOn && !chooseOn && root);
-
+    const { data, rootShow, curMark } = state;
+    let on = rootShow && data.root;
     useEffect(() => {
         let startIndex = 0;//按下alt键时的index
         let endIndex = 0;//抬起alt键时的index
@@ -239,9 +284,19 @@ const Mark = () => {
         const keyup = (evt) => {// 键盘起
             if (on) {
                 if (evt.keyCode === KeyCode.Alt) {
+                    // point结束
                     evt.preventDefault();
                     endIndex = window.getSelection().toString().length;
                     altPressed = false;
+                }
+                if (evt.keyCode === KeyCode.BACK) {
+                    evt.preventDefault();
+                    if (curMark.current) {
+                        // 删除高亮
+                        restoreMark(curMark.current);
+                        // 更新HMTL
+                        dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
+                    }
                 }
             }
         };
@@ -259,13 +314,12 @@ const Mark = () => {
                     // 备份元素
                     let origin = document.createElement("div");
                     origin.className = 'fluffy-origin';
-                    // 删除元素
-                    let del = document.createElement("div");
-                    del.className = 'fluffy-del';
+                    // markId
+                    let markId = new Date().getTime();
 
                     // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
-                    let endMarkWrap = findElParent(range.endContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
-                    let startMarkWrap = findElParent(range.startContainer, (node) => node.className && node.className.indexOf('fluffy-itemWrap') > -1);
+                    let endMarkWrap = findElParent(range.endContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
+                    let startMarkWrap = findElParent(range.startContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
                     if (startMarkWrap) {
                         // 选区范围框住该mark
                         range.setStartBefore(startMarkWrap);
@@ -276,7 +330,6 @@ const Mark = () => {
                     let str = range.toString();
                     // 添加mark内容
                     let sliceEndIndex = startIndex + (endIndex - startIndex);
-                    log(str, startIndex, sliceEndIndex)
                     let pointHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}</mark>`;
                     wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}</mark>`;
                     // 清空整个选区内容
@@ -285,30 +338,43 @@ const Mark = () => {
                     Array.from(cloneChild).map(item => {
                         origin.appendChild(item);
                     })
+                    // 还原选中
                     restoreMarks(origin);
-                    root.appendChild(origin);
-                    wrap.appendChild(del);
-                    let markId = new Date().getTime();
-                    origin.id = `fluffy-origin-${markId}`;
+                    // mark原文
                     wrap.setAttribute('data-id', markId);
                     range.insertNode(wrap);
-                    del.addEventListener('click', delItem.bind(null, wrap));
+                    // 原文添加到root里（便于还原嵌套型mark）
+                    origin.id = `fluffy-origin-${markId}`;
+                    data.root.appendChild(origin);
+                    // 清除选中
+                    sl && sl.removeAllRanges();
+                    // 更新HMTL
+                    dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
+                } else {
+                    let hasMarkParent = findElParent(evt.target, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1)
+                    if (hasMarkParent) {
+                        // 高亮选中
+                        dispatch({ type: 'changeCurMark', payload: hasMarkParent });
+                    } else {
+                        // 点击非高亮还原
+                        dispatch({ type: 'changeCurMark', payload: null });
+                    }
                 }
-                sl && sl.removeAllRanges();
                 startIndex = 0;
                 endIndex = 0;
             }
         };
-        const restoreMarks = (item) => {
+        const restoreMarks = (item) => {//还原嵌套的mark
             if (item.children) {
-                const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item))
+                // 遍历出mark并还原
+                const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item));
                 fluffyItems.map(i_item => {
-                    delItem(i_item)
+                    restoreMark(i_item);
                 })
             }
-            return item.className.indexOf('fluffy-itemWrap') > -1 ? item : false
+            return item?.className?.indexOf('fluffy-itemWrap') > -1 ? item : false
         }
-        const delItem = (mark) => {//删除mark
+        const restoreMark = (mark) => {//还原mark
             let markId = mark.getAttribute('data-id');
             if (markId) {
                 let origin = document.getElementById(`fluffy-origin-${markId}`);

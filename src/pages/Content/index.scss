@@ -103,16 +103,6 @@ $line-color:#71cb2d;
         }
     }
 
-    &-del {
-        position: absolute;
-        right: -5px;
-        top: -5px;
-        background-color: aqua;
-        width: 10px;
-        height: 10px;
-        display: none;
-    }
-
     // 原文
     &-origin {
         display: none;
