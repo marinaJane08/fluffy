@@ -47,15 +47,51 @@ const Host = () => {
                     chooseOn: action.payload
                 }
             case 'toggleRootShow':
+                // 显示还原样式
+                if (action.payload) {
+                    if (state.data.root) {
+                        addClass(state.data.root, 'fluffy-root');
+                        if (state.data.dataHTML) state.data.root.innerHTML = state.data.dataHTML;
+                    }
+                } else {
+                    if (state.data.root) {
+                        removeClass(state.data.root, 'fluffy-root');
+                        if (state.data.originHTML) state.data.root.innerHTML = state.data.originHTML;
+                    }
+                }
                 return {
                     ...state,
                     rootShow: action.payload
                 }
-            case 'changeData':
+            case 'toggleQuiz':
+                // 显示还原Quiz样式
+                if (action.payload) {
+                    if (state.data.root) {
+                        addClass(state.data.root, 'fluffy-quizOn');
+                    }
+                } else {
+                    if (state.data.root) {
+                        removeClass(state.data.root, 'fluffy-quizOn');
+                    }
+                }
                 return {
                     ...state,
-                    // data是对象，所以此处是合并
-                    data: { ...state.data, ...action.payload }
+                    qiuzOn: action.payload
+                }
+            case 'changeData':
+                let pathKey = location.origin + location.pathname;
+                // data是对象，所以此处是合并
+                let data = { ...state.data, ...action.payload };
+                if (data.root) {
+                    // 更新数据
+                    chrome.storage.sync.set({ [pathKey]: data });
+                } else {
+                    // 清除数据
+                    chrome.storage.sync.remove(pathKey);
+                }
+                return {
+                    ...state,
+                    data
                 }
             case 'changeCurMark':
                 // 高亮需要清空之前选中的样式
@@ -73,14 +109,15 @@ const Host = () => {
         appOn: true,//页面开关
         chooseOn: false,//选择容器中
         rootShow: false,//是否显示文章容器
-        data: {},//数据
+        qiuzOn: false,//测试模式
+        data: { root: null, rootPath: '', originHTML: '', dataHTML: '' },//数据
         curMark: useRef(),//当前选中的mark
     });
-    const { appOn, chooseOn, rootShow, data } = state;
+    const { appOn, chooseOn, rootShow, qiuzOn, data } = state;
     // 初始化时、路由改变时，还原root
     const restoreRoot = () => {
         let pathKey = location.origin + location.pathname;
-        chrome.storage.sync.get(pathKey, (items) => {
+        chrome.storage.sync.get({ [pathKey]: {} }, (items) => {
             if (items[pathKey]?.rootPath) {
                 try {
                     items[pathKey].root = eval(items[pathKey].rootPath);
@@ -89,10 +126,18 @@ const Host = () => {
                 }
             }
             dispatch({ type: 'changeData', payload: items[pathKey] });
-            if (appOn) {
+            if (items[pathKey].root) {
                 dispatch({ type: 'toggleRootShow', payload: true });
             }
         });
+    }
+    // 清空数据
+    const clearData = () => {
+        // 顺序（先隐藏root，再清空数据）
+        dispatch({ type: 'toggleChoose', payload: false });
+        dispatch({ type: 'toggleRootShow', payload: false });
+        // 清除root，将root设为null
+        dispatch({ type: 'changeData', payload: { root: null } });
     }
     useEffect(() => {
         if (appOn) {
@@ -108,33 +153,11 @@ const Host = () => {
             dispatch({ type: 'toggleRootShow', payload: false });
         } else {
             // 退出选择后加上root样式
-            dispatch({ type: 'toggleRootShow', payload: true });
+            if (data.root) {
+                dispatch({ type: 'toggleRootShow', payload: true });
+            }
         }
     }, [chooseOn]);
-    useEffect(() => {
-        // 显示还原样式
-        if (rootShow) {
-            if (data.root) {
-                addClass(data.root, 'fluffy-root');
-                if (data.dataHTML) data.root.innerHTML = data.dataHTML;
-            }
-        } else {
-            if (data.root) {
-                removeClass(data.root, 'fluffy-root');
-                if (data.originHTML) data.root.innerHTML = data.originHTML;
-            }
-        }
-    }, [rootShow, data]);
-    useEffect(() => {
-        let pathKey = location.origin + location.pathname;
-        if (data.root) {
-            // 更新数据
-            chrome.storage.sync.set({ [pathKey]: data });
-        } else {
-            // 清除数据
-            chrome.storage.sync.remove(pathKey);
-        }
-    }, [data]);
     useEffect(() => {
         const handler = {
             on: (newValue) => {
@@ -161,12 +184,20 @@ const Host = () => {
         chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             tabHandler[msg.type] && tabHandler[msg.type](msg.payload);
         });
-    }, [])
+    }, []);
     const showHost = appOn && !chooseOn;
     return <HostContext.Provider value={{ state, dispatch }}>
         {showHost
             ? <div className="fluffy-operateBtn">
-                <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
+                {!qiuzOn
+                    ? <Fragment>
+                        <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
+                        {rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
+                    </Fragment>
+                    : null
+                }
+                <button onClick={dispatch.bind(null, { type: 'toggleQuiz', payload: !qiuzOn })}>测验模式</button>
+                {data.root && rootShow && qiuzOn && <Quiz />}
             </div>
             : null
         }
@@ -220,9 +251,9 @@ const ChooseRoot = () => {
         if (chooseOn && canChoose(evt)) {
             removeHoverStyle(evt.target);
             hoverTarget.current = null;
-            // 设置root
+            // 设置|重置root
             let root = evt.target;
-            dispatch({ type: 'changeData', payload: { root, rootPath: getEvalRoot(root), originHTML: root.innerHTML } });
+            dispatch({ type: 'changeData', payload: { root, rootPath: getEvalRoot(root), originHTML: root.innerHTML, dataHTML: root.innerHTML } });
             dispatch({ type: 'toggleChoose', payload: false });
         }
     }, [chooseOn]);
@@ -265,8 +296,8 @@ const ChooseRoot = () => {
 
 const Mark = () => {
     const { state, dispatch } = useContext(HostContext);
-    const { data, rootShow, curMark } = state;
-    let on = rootShow && data.root;
+    const { data, rootShow, curMark, qiuzOn } = state;
+    let on = rootShow && data.root && !qiuzOn;
     useEffect(() => {
         let startIndex = 0;//按下alt键时的index
         let endIndex = 0;//抬起alt键时的index
@@ -309,7 +340,7 @@ const Mark = () => {
                 if (sl.toString()) {
                     let range = sl.getRangeAt(0);// range对象
                     // 包裹元素
-                    let wrap = document.createElement("a");
+                    let wrap = document.createElement("mark");
                     wrap.className = `fluffy-itemWrap`;
                     // 备份元素
                     let origin = document.createElement("div");
@@ -330,8 +361,8 @@ const Mark = () => {
                     let str = range.toString();
                     // 添加mark内容
                     let sliceEndIndex = startIndex + (endIndex - startIndex);
-                    let pointHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(0, startIndex)}<span class="fluffy-point">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}</mark>`;
-                    wrap.innerHTML = `<mark spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}</mark>`;
+                    let pointHTML = `${str.slice(0, startIndex)}<span class="fluffy-point" spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}`;
+                    wrap.innerHTML = `${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}`;
                     // 清空整个选区内容
                     let extractContents = range.extractContents(),
                         cloneChild = extractContents.childNodes;
@@ -392,6 +423,89 @@ const Mark = () => {
         }
     }, [on]);
     return <mark></mark>
+}
+
+const Quiz = () => {
+    const { state, dispatch } = useContext(HostContext);
+    const { data, rootShow, curMark, qiuzOn } = state;
+    useEffect(() => {
+        let allPoint = Array.from(data.root.getElementsByClassName(`fluffy-point`));
+        let current = -1;
+        allPoint.map(item => {
+            // 开启编辑模式（清空内容）
+            item.innerHTML = "";
+        });
+        const checkQuiz = () => {
+            if (current <= allPoint.length - 1) {
+                log(allPoint[current])
+                let item = allPoint[current];
+                let correct = item.getAttribute('data-value'), input = item.innerText;
+                // 结果样式
+                addClass(item, `fluffy-point-${input === correct ? 'correct' : 'wrong'}`);
+                // 关闭编辑
+                item.contentEditable = "false";
+                jumpNext();
+            } else {
+                log('测验已结束')
+            }
+        }
+        const jumpNext = () => {
+            current += 1;
+            if (current <= allPoint.length - 1) {
+                let item = allPoint[current];
+                // 可编辑并聚焦
+                item.contentEditable = "true";
+                item.focus();
+                if (!oninput) {
+                    // 英文输入和中文输入监听
+                    let inputLock = false;
+                    let correct = item.getAttribute('data-value');
+                    item.oninput = () => {
+                        if (inputLock) {
+                            return;
+                        }
+                        let input = item.innerText;
+                        if (input.length >= correct.length) {
+                            // 输入长度和正确答案一致
+                            checkQuiz();
+                        }
+                    }
+                    item.addEventListener('compositionstart', (e) => {
+                        inputLock = true;
+                    });
+                    item.addEventListener('compositionend', (e) => {
+                        inputLock = false;
+                        let input = item.innerText;
+                        if (input.length >= correct.length) {
+                            // 输入长度和正确答案一致
+                            checkQuiz();
+                        }
+                    });
+                }
+            }
+        }
+        jumpNext();
+
+        const keydown = (evt) => {// 键盘起
+            if (evt.keyCode === KeyCode.TAB) {
+                evt.preventDefault();
+                // tab切换下一个
+                checkQuiz();
+            }
+        };
+        document.addEventListener('keydown', keydown);
+
+        return () => {
+            document.removeEventListener('keydown', keydown);
+
+            // 复原pointHTML
+            allPoint.map(item => {
+                // 开启编辑模式（清空内容）
+                item.innerHTML = item.getAttribute('data-value');
+            });
+        }
+    }, [data.root]);
+    return null
 }
 
 render(<Host />, host);

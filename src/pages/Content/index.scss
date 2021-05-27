@@ -66,9 +66,9 @@ $line-color:#71cb2d;
             text-shadow: #111 0 0 5px !important;
         }
 
-        // 只显示标记
         #{$wrap} {
 
+            // 只显示标记
             &-itemWrap,
             &-point {
                 color: #111 !important;
@@ -77,6 +77,15 @@ $line-color:#71cb2d;
 
             &-point {
                 padding: 0 4px;
+
+                // 结果样式
+                &-wrong {
+                    color: rgb(216, 87, 78) !important;
+                }
+
+                &-correct {
+                    color: rgb(156, 216, 78) !important;
+                }
             }
         }
     }
@@ -113,8 +122,6 @@ $line-color:#71cb2d;
 
     // 关键词
     &-point {
-        // 光标在最后时不显示，必须用inline-block
-        display: inline-block;
         background: rgba(0, 255, 0, 0.5);
     }
 
