@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, useContext } from 'react';
 import { render } from 'react-dom';
+import Mind from './Mind';
 import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent, copyRemoveContents } from '@/utils';
 import KeyCode from '@/utils/KeyCode.js';
 import './index.scss';
@@ -45,6 +46,11 @@ const Host = () => {
                 return {
                     ...state,
                     chooseOn: action.payload
+                }
+            case 'toggleMind':
+                return {
+                    ...state,
+                    mindOn: action.payload
                 }
             case 'toggleRootShow':
                 // 显示还原样式
@@ -110,10 +116,11 @@ const Host = () => {
         chooseOn: false,//选择容器中
         rootShow: false,//是否显示文章容器
         qiuzOn: false,//测试模式
+        mindOn: true,//显示脑图
         data: { root: null, rootPath: '', originHTML: '', dataHTML: '' },//数据
         curMark: useRef(),//当前选中的mark
     });
-    const { appOn, chooseOn, rootShow, qiuzOn, data } = state;
+    const { appOn, chooseOn, rootShow, qiuzOn, mindOn, data } = state;
     // 初始化时、路由改变时，还原root
     const restoreRoot = () => {
         let pathKey = location.origin + location.pathname;
@@ -122,11 +129,12 @@ const Host = () => {
                 try {
                     items[pathKey].root = eval(items[pathKey].rootPath);
                 } catch (error) {
-                    log('解析容器出错')
+                    items[pathKey].root = null;
+                    log('🍎解析容器出错')
                 }
             }
             dispatch({ type: 'changeData', payload: items[pathKey] });
-            if (items[pathKey].root) {
+            if (appOn && items[pathKey].root) {
                 dispatch({ type: 'toggleRootShow', payload: true });
             }
         });
@@ -137,14 +145,14 @@ const Host = () => {
         dispatch({ type: 'toggleChoose', payload: false });
         dispatch({ type: 'toggleRootShow', payload: false });
         // 清除root，将root设为null
-        dispatch({ type: 'changeData', payload: { root: null } });
+        dispatch({ type: 'changeData', payload: { root: null, rootPath: '', originHTML: '', dataHTML: '' } });
     }
     useEffect(() => {
-        if (appOn) {
-            restoreRoot();
-        } else {
+        if (!appOn) {
             dispatch({ type: 'toggleChoose', payload: false });
             dispatch({ type: 'toggleRootShow', payload: false });
+            dispatch({ type: 'toggleMind', payload: false });
+            dispatch({ type: 'toggleQuiz', payload: false });
         }
     }, [appOn]);
     useEffect(() => {
@@ -193,14 +201,19 @@ const Host = () => {
                     ? <Fragment>
                         <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
                         {rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
+                        {/* {rootShow && <button onClick={dispatch.bind(null, { type: 'toggleMind', payload: !mindOn })}>脑图</button>} */}
                     </Fragment>
                     : null
                 }
-                <button onClick={dispatch.bind(null, { type: 'toggleQuiz', payload: !qiuzOn })}>测验模式</button>
-                {data.root && rootShow && qiuzOn && <Quiz />}
+                {data.root && rootShow && <Fragment>
+                    <button onClick={dispatch.bind(null, { type: 'toggleQuiz', payload: !qiuzOn })}>测验模式</button>
+                    {qiuzOn && <Quiz />}
+                </Fragment>}
             </div>
             : null
         }
+        {/* 传on避免重复渲染 */}
+        <Mind on={mindOn && !qiuzOn} />
         {appOn && <ChooseRoot />}
         {appOn && <Mark />}
     </HostContext.Provider>
@@ -347,21 +360,24 @@ const Mark = () => {
                     origin.className = 'fluffy-origin';
                     // markId
                     let markId = new Date().getTime();
-
                     // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
                     let endMarkWrap = findElParent(range.endContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
                     let startMarkWrap = findElParent(range.startContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
                     if (startMarkWrap) {
-                        // 选区范围框住该mark
+                        // index要加上扩张的部分
+                        startIndex += range.startOffset;
+                        endIndex += range.startOffset;
+                        // 选区范围开头框住该mark
                         range.setStartBefore(startMarkWrap);
                     }
                     if (endMarkWrap) {
+                        // 选区范围结尾框住该mark
                         range.setEndAfter(endMarkWrap);
                     }
                     let str = range.toString();
                     // 添加mark内容
                     let sliceEndIndex = startIndex + (endIndex - startIndex);
-                    let pointHTML = `${str.slice(0, startIndex)}<span class="fluffy-point" spellcheck="false" data-value="${str}">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}`;
+                    let pointHTML = `${str.slice(0, startIndex)}<span class="fluffy-point" spellcheck="false" data-value="${str.slice(startIndex, sliceEndIndex)}">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}`;
                     wrap.innerHTML = `${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}`;
                     // 清空整个选区内容
                     let extractContents = range.extractContents(),
@@ -413,11 +429,11 @@ const Mark = () => {
                 origin.remove();
             }
         }
-        document.addEventListener('mouseup', mouseup);
+        if (data.root) data.root.addEventListener('mouseup', mouseup);
         document.addEventListener('keydown', keydown);
         document.addEventListener('keyup', keyup);
         return () => {
-            document.removeEventListener('mouseup', mouseup);
+            if (data.root) data.root.removeEventListener('mouseup', mouseup);
             document.removeEventListener('keydown', keydown);
             document.removeEventListener('keyup', keyup);
         }
@@ -437,13 +453,13 @@ const Quiz = () => {
         });
         const checkQuiz = () => {
             if (current <= allPoint.length - 1) {
-                log(allPoint[current])
                 let item = allPoint[current];
                 let correct = item.getAttribute('data-value'), input = item.innerText;
                 // 结果样式
                 addClass(item, `fluffy-point-${input === correct ? 'correct' : 'wrong'}`);
                 // 关闭编辑
                 item.contentEditable = "false";
+                item.title = correct;
                 jumpNext();
             } else {
                 log('测验已结束')
@@ -456,6 +472,7 @@ const Quiz = () => {
                 // 可编辑并聚焦
                 item.contentEditable = "true";
                 item.focus();
+                item.scrollIntoView();
                 if (!oninput) {
                     // 英文输入和中文输入监听
                     let inputLock = false;
@@ -500,8 +517,8 @@ const Quiz = () => {
 
             // 复原pointHTML
             allPoint.map(item => {
-                // 开启编辑模式（清空内容）
                 item.innerHTML = item.getAttribute('data-value');
+                item.title = "";
             });
         }
     }, [data.root]);
