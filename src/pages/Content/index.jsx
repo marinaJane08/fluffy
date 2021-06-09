@@ -112,11 +112,11 @@ const Host = () => {
                 return state;
         }
     }, {
-        appOn: true,//页面开关
+        appOn: false,//页面开关
         chooseOn: false,//选择容器中
         rootShow: false,//是否显示文章容器
         qiuzOn: false,//测试模式
-        mindOn: true,//显示脑图
+        mindOn: false,//显示脑图
         data: { root: null, rootPath: '', originHTML: '', dataHTML: '' },//数据
         curMark: useRef(),//当前选中的mark
     });
@@ -153,6 +153,9 @@ const Host = () => {
             dispatch({ type: 'toggleRootShow', payload: false });
             dispatch({ type: 'toggleMind', payload: false });
             dispatch({ type: 'toggleQuiz', payload: false });
+        } else {
+            dispatch({ type: 'toggleRootShow', payload: true });
+            dispatch({ type: 'toggleMind', payload: true });
         }
     }, [appOn]);
     useEffect(() => {
@@ -213,7 +216,7 @@ const Host = () => {
             : null
         }
         {/* 传on避免重复渲染 */}
-        <Mind on={mindOn && !qiuzOn} />
+        <Mind on={mindOn && data.root && !qiuzOn} />
         {appOn && <ChooseRoot />}
         {appOn && <Mark />}
     </HostContext.Provider>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, forwardRef, Fragment, createRef } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, Fragment, createRef } from 'react';
 import ReactDOM, { render } from 'react-dom';
 import G6 from '@antv/g6';
 import KeyCode from '@/utils/KeyCode.js';
@@ -6,6 +6,7 @@ import { removeClass, addClass, getEvalRoot } from '@/utils';
 
 const log = console.log;
 const preventDefault = (e) => e.preventDefault();
+const toolbar = new G6.ToolBar();
 const data = {
     // 点集
     nodes: [
@@ -21,112 +22,136 @@ const data = {
         },
     ],
     // 边集
-    edges: [
-        {
-            source: 'node1', // String，必须，起始点 id
-            target: 'node2', // String，必须，目标点 id
-        },
-    ],
+    // edges: [
+    //     {
+    //         source: 'node1', // String，必须，起始点 id
+    //         target: 'node2', // String，必须，目标点 id
+    //     },
+    // ],
 };
+const CustomNode = forwardRef(({ onChangeSize }, ref) => {
+    const wrapRef = useRef();
+    const [wrapSize, setWrapSize] = useState(null);
+    const [data, setData] = useState({});
+    const updateSize = () => wrapRef?.current && setWrapSize({
+        width: wrapRef.current.clientWidth + 10,
+        height: wrapRef.current.clientHeight + 10,
+    });
+    useEffect(() => {
+        // 容器初始化更新size
+        // setTimeout(() => {
+        // 加定时器等待渲染（包含Input.TextArea组件时，高度会变化）
+        updateSize()
+        // }, 1);
+    }, [wrapRef]);
+    useEffect(() => {
+        wrapSize && onChangeSize(wrapSize);
+    }, [wrapSize]);
+    useImperativeHandle(ref, () => ({
+        update: setData,
+    }));
+    return <foreignObject
+        // position用于布局控制，overflow设置才能显示内容，padding设置内容边缘
+        style={{ overflow: 'initial', position: 'relative', padding: 5 }}
+    >
+        <div
+            ref={wrapRef}
+            style={{
+                overflow: 'visible', display: 'block', position: 'absolute',
+                width: 'auto', wordBreak: 'keep-all',
+                userSelect: 'none', cursor: 'default',
+                boxShadow: 'rgb(170, 170, 170) 1px 2px 6px'
+            }}
+        >
+            <div contentEditable="true"
+                onInput={() => {
+                    updateSize();
+                }}
+                style={{ width: 50, padding: 5 }}
+            >{data.text}</div>
+        </div>
+    </foreignObject>
+})
 // 自定义节点
-const registerCustomNode1 = ({ graph, Node, ...nodeProps }) => {
+const registerCustomNode = ({ graph }) => {
     const nodeRefs = {};
-    G6.registerNode(
-        'dom-node',
-        {
-            jsx: (cfg) => `<rect
-                style={{ width: ${cfg.width}, height: ${cfg.height}, fill: 'rgba(0,0,0,0)', stroke: 'none', radius: [5, 5, 5, 5], cursor: move }}
-                keyshape="true"
-                name="rect"
-            />`,
-            afterDraw: (cfg, group, shape) => {
-                let wrap = group.addGroup({ capture: false });
-                const nodeRef = createRef();
-                // 渲染dom
-                render(<Node
-                    {...nodeProps}
-                    cfg={cfg}
-                    ref={nodeRef}
-                    onInit={() => {
-                        // 初始化推入nodeRef
-                        nodeRefs[cfg.id] = nodeRef.current;
-                    }}
-                    onChangeSize={(wrapSize) => {
-                        if (cfg.width !== wrapSize.width || cfg.height !== wrapSize.height) {
-                            // 更新keyShape的宽高
-                            let dragShape = group.getFirst();
-                            dragShape.attr({
-                                width: wrapSize.width,
-                                height: wrapSize.height,
-                            });
-                            // 调整布局
-                            graph.updateItem(String(cfg.id), {
-                                width: wrapSize.width,
-                                height: wrapSize.height,
-                                //  设置size值（用于布局）
-                                size: 100
-                            }, false)
-                            // graph.layout();
-                        }
-                    }}
-                />, wrap.cfg.el);
-                return wrap
-            },
-            update: (cfg, item) => {
-                // 更新对应node的配置项（找到对应的nodeRef）
-                nodeRefs[cfg.id] && nodeRefs[cfg.id].update(cfg)
-            },
-            setState(name, value, item) {
-                const group = item.getContainer();
-                const shape = group.getFirst(); // 顺序根据 draw 时确定
-                if (name === 'active') {
-                    if (value) {
-                        shape.attr('stroke', '#63abf7');
-                    } else {
-                        shape.attr('stroke', 'none');
-                    }
-                } else if (name === 'size') {
-                    item.update({ size: value })
-                }
-            },
-        },
-        'single-node',
-    );
-}
-const registerCustomNode = ({ graph, Node, ...nodeProps }) => {
     return G6.registerNode(
         'dom-node',
         {
             options: {
-                style: {},
                 stateStyles: {
                     hover: {},
                     selected: {},
                 },
             },
             draw: (cfg, group) => {
-                return group.addShape('dom', {
+                log(cfg.width, 'draw')
+                let dragRect = group.addShape('rect', {
                     attrs: {
-                        width: cfg.size[0],
-                        height: cfg.size[1],
-                        // 传入 DOM 的 html
-                        html: `
-              <div style="background-color: #fff; user-select: none; border: 2px solid #5B8FF9; border-radius: 5px; width: ${cfg.size[0] - 5
-                            }px; height: ${cfg.size[1] - 5}px; display: flex;">
-                <div style="height: 100%; width: 33%; background-color: #CDDDFD">
-                  <img alt="img" style="line-height: 100%; padding-top: 6px; padding-left: 8px;" src="https://gw.alipayobjects.com/mdn/rms_f8c6a0/afts/img/A*Q_FQT6nwEC8AAAAAAAAAAABkARQnAQ" width="20" height="20" />  
-                </div>
-                <span style="margin:auto; padding:auto; color: #5B8FF9">${cfg.label}</span>
-              </div>
-                `,
+                        width: cfg.width,
+                        height: cfg.height,
+                        stroke: 'white',
+                        lineWidth: 10,
                     },
+                    capture: false,
                     draggable: true,
                 });
+                let wrap = group.addGroup({ capture: false, draggable: true });
+                render(<CustomNode
+                    ref={ref => { if (ref) nodeRefs[cfg.id] = ref }}
+                    onChangeSize={(wrapSize) => {
+                        if (cfg.width !== wrapSize.width || cfg.height !== wrapSize.height) {
+                            // 更新keyShape的宽高
+                            dragRect.attr({
+                                width: wrapSize.width,
+                                height: wrapSize.height,
+                            });
+                            // 更新数据
+                            graph.updateItem(String(cfg.id), {
+                                width: wrapSize.width,
+                                height: wrapSize.height,
+                                //  设置size值（用于布局）
+                                // size: 100
+                            }, false)
+                            // 调整布局
+                            // graph.layout();
+                        }
+                    }} />, wrap.cfg.el);
+                return dragRect
             },
+            afterDraw: (cfg, group, shape) => {
+            },
+            update: (cfg, item) => {
+                // 更新对应node的配置项（找到对应的nodeRef）
+                log(cfg, item, 'update')
+            },
+            setState: (name, value, item) => {
+            }
         },
-        'single-node',
+        'react',
     );
 }
+G6.registerBehavior('custom-drag', {
+    getEvents() {
+        return {
+            'node:dragstart': 'ondragstart'
+        };
+    },
+    ondragstart(e) {
+        log(e)
+        // const graph = this.graph;
+        // const canvas = graph.get('canvas');
+        // // 判断点击目标是否canvas
+        // if (e.originalEvent.target === canvas.cfg.el) {
+        //     // 新增节点
+        //     parent.addNode({
+        //         type: 'rect-xml',
+        //         x: e.canvasX,
+        //         y: e.canvasY
+        //     });
+        // }
+    }
+});
 export default ({ on }) => {
     const graphRef = useRef();
     useEffect(() => {
@@ -137,12 +162,54 @@ export default ({ on }) => {
             height: graphRef.current.clientHeight,
             enabledStack: true,
             animate: true,
+            plugins: [toolbar],
             modes: {
-                default: ['zoom-canvas', 'drag-node'],
+                default: [
+                    'zoom-canvas',
+                    {//节点可拖拽
+                        type: 'drag-node',
+                        shouldBegin(e) {
+                            // 按下shift键表示在创建边
+                            if (e.originalEvent.shiftKey) {
+                                return false;
+                            }
+                            return true;
+                        }
+                    },
+                    {//拖拽连线
+                        type: 'create-edge',
+                        trigger: 'drag',
+                        key: 'shift',
+                        shouldEnd(e) {
+                            const edges = e.item.getEdges();
+                            let targetNodeId = e.item.getModel().id;
+                            // 防止loop（连自己）
+                            if (targetNodeId === this.source) {
+                                return false;
+                            }
+                            let hasConnect = false;
+                            // 已有边时不重复创建
+                            edges.map(item => {
+                                let edgeModel = item.getModel();
+                                if (edgeModel.source === this.source || edgeModel.target === this.source) {
+                                    hasConnect = true;
+                                }
+                            });
+                            if (hasConnect) {
+                                return false;
+                            }
+                            return true;
+                        }
+                    },
+                    'drag-canvas',
+                    'custom-drag'
+                ],
                 edit: ['click-select']
             },
             defaultNode: {
                 type: 'dom-node',
+                width: 1,
+                height: 1,
                 size: [50, 50],
             },
         })
@@ -155,14 +222,11 @@ export default ({ on }) => {
         graph.render();
         // graph.setMode('edit');
     }, [])
-    return <Fragment>
-        <form
-            tabIndex="0"
-            ref={graphRef}
-            className="fluffy-mind"
-            style={{ display: on ? 'block' : 'none' }}
-            onFocus={e => document.addEventListener('contextmenu', preventDefault)}
-            onBlur={e => document.removeEventListener('contextmenu', preventDefault)}
-        ></form>
-    </Fragment>
+    return <form
+        tabIndex="0"
+        ref={graphRef}
+        className={`fluffy-mind ${on ? '' : 'fluffy-mind-hide'}`}
+        onFocus={e => document.addEventListener('contextmenu', preventDefault)}
+        onBlur={e => document.removeEventListener('contextmenu', preventDefault)}
+    ></form>
 }

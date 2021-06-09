@@ -13,7 +13,7 @@ $line-color:#71cb2d;
     &-operateBtn {
         @include boxShadow;
         position: fixed;
-        right: 0;
+        left: 0;
         top: 0;
         z-index: 999999999;
         padding: 0 10px;
@@ -55,6 +55,15 @@ $line-color:#71cb2d;
         height: 100%;
         background-color: $bg-color;
         z-index: 99999999;
+        transition: all 1s;
+
+        &-show {
+            right: 0;
+        }
+
+        &-hide {
+            right: -100%;
+        }
     }
 
     // 测验中
