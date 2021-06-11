@@ -203,7 +203,7 @@ const Host = () => {
                 {!qiuzOn
                     ? <Fragment>
                         <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
-                        {rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
+                        {data.root && rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
                         {/* {rootShow && <button onClick={dispatch.bind(null, { type: 'toggleMind', payload: !mindOn })}>脑图</button>} */}
                     </Fragment>
                     : null

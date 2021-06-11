@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, Fr
 import ReactDOM, { render } from 'react-dom';
 import G6 from '@antv/g6';
 import KeyCode from '@/utils/KeyCode.js';
-import { removeClass, addClass, getEvalRoot } from '@/utils';
+import { removeClass, addClass, getEvalRoot, getTimeStamp } from '@/utils';
 
 const log = console.log;
 const preventDefault = (e) => e.preventDefault();
@@ -22,14 +22,14 @@ const data = {
         },
     ],
     // 边集
-    // edges: [
-    //     {
-    //         source: 'node1', // String，必须，起始点 id
-    //         target: 'node2', // String，必须，目标点 id
-    //     },
-    // ],
+    edges: [
+        {
+            source: 'node1', // String，必须，起始点 id
+            target: 'node2', // String，必须，目标点 id
+        },
+    ],
 };
-const CustomNode = forwardRef(({ onChangeSize }, ref) => {
+const CustomNode = forwardRef(({ onChangeSize, onClick }, ref) => {
     const wrapRef = useRef();
     const [wrapSize, setWrapSize] = useState(null);
     const [data, setData] = useState({});
@@ -62,6 +62,7 @@ const CustomNode = forwardRef(({ onChangeSize }, ref) => {
                 userSelect: 'none', cursor: 'default',
                 boxShadow: 'rgb(170, 170, 170) 1px 2px 6px'
             }}
+        // onClick={onClick}
         >
             <div contentEditable="true"
                 onInput={() => {
@@ -72,18 +73,13 @@ const CustomNode = forwardRef(({ onChangeSize }, ref) => {
         </div>
     </foreignObject>
 })
+
 // 自定义节点
 const registerCustomNode = ({ graph }) => {
     const nodeRefs = {};
     return G6.registerNode(
         'dom-node',
         {
-            options: {
-                stateStyles: {
-                    hover: {},
-                    selected: {},
-                },
-            },
             draw: (cfg, group) => {
                 log(cfg.width, 'draw')
                 let dragRect = group.addShape('rect', {
@@ -107,7 +103,7 @@ const registerCustomNode = ({ graph }) => {
                                 height: wrapSize.height,
                             });
                             // 更新数据
-                            graph.updateItem(String(cfg.id), {
+                            graph.updateItem(cfg.id, {
                                 width: wrapSize.width,
                                 height: wrapSize.height,
                                 //  设置size值（用于布局）
@@ -116,7 +112,11 @@ const registerCustomNode = ({ graph }) => {
                             // 调整布局
                             // graph.layout();
                         }
-                    }} />, wrap.cfg.el);
+                    }}
+                    onClick={() => {
+                        graph.setItemState(cfg.id, 'active', true);
+                    }}
+                />, wrap.cfg.el);
                 return dragRect
             },
             afterDraw: (cfg, group, shape) => {
@@ -126,36 +126,215 @@ const registerCustomNode = ({ graph }) => {
                 log(cfg, item, 'update')
             },
             setState: (name, value, item) => {
+                const dragRect = item.getKeyShape();
+                switch (name) {
+                    case 'active':
+                        if (value === true) {
+                            dragRect.attr({
+                                stroke: 'blue',
+                            });
+                        } else {
+                            dragRect.attr({
+                                stroke: 'white',
+                            });
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                log('setState', name, value, item)
             }
         },
         'react',
     );
 }
-G6.registerBehavior('custom-drag', {
-    getEvents() {
-        return {
-            'node:dragstart': 'ondragstart'
-        };
-    },
-    ondragstart(e) {
-        log(e)
-        // const graph = this.graph;
-        // const canvas = graph.get('canvas');
-        // // 判断点击目标是否canvas
-        // if (e.originalEvent.target === canvas.cfg.el) {
-        //     // 新增节点
-        //     parent.addNode({
-        //         type: 'rect-xml',
-        //         x: e.canvasX,
-        //         y: e.canvasY
-        //     });
-        // }
-    }
-});
 export default ({ on }) => {
     const graphRef = useRef();
+    const graph = useRef();
+    // 双击画布新增节点
+    G6.registerBehavior('add-node', {
+        getEvents() {
+            return {
+                'canvas:dblclick': 'onCanvasDblClick'
+            };
+        },
+        onCanvasDblClick(e) {
+            const canvas = graph.current.get('canvas');
+            // 判断点击目标是否canvas
+            if (e.originalEvent.target === canvas.cfg.el) {
+                // 新增节点
+                graph.current.addItem('node', {
+                    id: getTimeStamp(),
+                    x: e.canvasX,
+                    y: e.canvasY
+                });
+            }
+        }
+    });
+    // 高亮节点和边
+    G6.registerBehavior('active-item', {
+        getDefaultCfg() {
+            return {
+                multiple: false,// 是否可以多选
+            };
+        },
+        getEvents() {
+            return {
+                'node:click': 'onNodeClick',
+                'edge:click': 'onEdgeClick',
+                'canvas:click': 'onCanvasClick',
+                'keydown': 'onKeyDown',
+                'keyup': 'onKeyUp',
+            };
+        },
+        onNodeClick(e) {
+            const item = e.item;
+            if (item.hasState('active')) {
+                graph.current.clearItemStates(item, 'active');
+                return;
+            }
+            if (!this.multiple) {
+                this.removeNodesState();
+            }
+            graph.current.setItemState(item, 'active', true);
+        },
+        onEdgeClick(e) {
+            const item = e.item;
+            if (item.hasState('active')) {
+                graph.current.clearItemStates(item, 'active');
+                return;
+            }
+            if (!this.multiple) {
+                this.removeEdgesState();
+            }
+            graph.current.setItemState(item, 'active', true);
+        },
+        onCanvasClick(e) {
+            if (this.shouldUpdate(e)) {
+                this.removeNodesState();
+                this.removeEdgesState();
+            }
+        },
+        onKeyDown(e) {
+            if (this.shouldUpdate(e)) {
+                switch (e.keyCode) {
+                    case KeyCode.CONTROL:
+                        // 允许多选
+                        this.multiple = true;
+                        break;
+                }
+            }
+        },
+        onKeyUp(e) {
+            if (this.shouldUpdate(e)) {
+                switch (e.keyCode) {
+                    case KeyCode.CONTROL:
+                        // 去除多选
+                        this.multiple = false;
+                        break;
+                }
+            }
+        },
+        removeNodesState() {
+            // 移除高亮
+            graph.current.findAllByState('node', 'active').forEach(node => {
+                graph.current.clearItemStates(node, 'active');
+            });
+        },
+        removeEdgesState() {
+            // 移除高亮
+            graph.current.findAllByState('edge', 'active').forEach(edge => {
+                graph.current.clearItemStates(edge, 'active');
+            });
+        },
+    });
+    // 新增、删除选中节点
+    G6.registerBehavior('operate-item', {
+        getEvents() {
+            return {
+                'keydown': 'onKeyDown',
+                'keyup': 'onKeyUp',
+            };
+        },
+        onKeyUp(e) {
+            if (this.shouldUpdate(e)) {
+                switch (e.keyCode) {
+                    case KeyCode.BACK:
+                        // 删除高亮节点
+                        this.removeNodes();
+                        // 删除高亮连接
+                        this.removeEdges();
+                        break;
+                    case KeyCode.TAB:
+                        // 新增子节点
+                        this.addNode('sub');
+                        break;
+                    case KeyCode.ENTER:
+                        // 新增同级节点
+                        this.addNode('peer');
+                        break;
+                    default:
+                        break;
+                }
+            }
+        },
+        removeNodes() {
+            // 删除高亮节点
+            graph.current.findAllByState('node', 'active').forEach(node => {
+                graph.current.removeItem(node);
+            });
+        },
+        removeEdges() {
+            // 删除高亮连接
+            graph.current.findAllByState('edge', 'active').forEach(edge => {
+                graph.current.removeItem(edge);
+            });
+        },
+        addNode(type) {
+            // 新增节点
+            let activeNode = graph.current.findAllByState('node', 'active');
+            // 当前只有一个高亮节点
+            if (activeNode.length > 0) {
+                activeNode = activeNode[0];
+                if (type === 'sub') {
+                    let sorceModel = activeNode.getModel();
+                    // 新增子节点
+                    let newNode = graph.current.addItem('node', {
+                        isSub: true,
+                        id: getTimeStamp(),
+                        x: sorceModel.x,
+                        y: sorceModel.y
+                    });
+                    // 添加子节点连线
+                    graph.current.addItem('edge', {
+                        source: sorceModel.id,
+                        target: newNode.getModel().id,
+                        type: 'line',
+                    });
+                } else if (type === 'peer') {
+                    let parentNodes = activeNode.getNeighbors('source');
+                    if (parentNodes.length > 0) {
+                        let sorceModel = parentNodes[0].getModel();
+                        // 新增同级节点
+                        let newNode = graph.current.addItem('node', {
+                            id: getTimeStamp(),
+                            x: sorceModel.x,
+                            y: sorceModel.y
+                        });
+                        // 添加同级节点连线
+                        graph.current.addItem('edge', {
+                            source: sorceModel.id,
+                            target: newNode.getModel().id,
+                            type: 'line',
+                        });
+                    }
+                }
+                // graph.layout();
+            }
+        }
+    });
     useEffect(() => {
-        const graph = new G6.Graph({
+        graph.current = new G6.Graph({
             container: ReactDOM.findDOMNode(graphRef.current),
             renderer: 'svg',
             width: graphRef.current.clientWidth,
@@ -202,7 +381,9 @@ export default ({ on }) => {
                         }
                     },
                     'drag-canvas',
-                    'custom-drag'
+                    'add-node',
+                    'active-item',
+                    'operate-item'
                 ],
                 edit: ['click-select']
             },
@@ -212,15 +393,28 @@ export default ({ on }) => {
                 height: 1,
                 size: [50, 50],
             },
+            defaultEdge: {
+                style: {
+                    stroke: '#b8ef70',
+                    lineWidth: 2
+                },
+            },
+            // 边不同状态下的样式集合
+            edgeStateStyles: {
+                // 鼠标点击边，即 click 状态为 true 时的样式
+                active: {
+                    stroke: '#71cb2d',
+                    lineWidth: 3
+                },
+            },
         })
         registerCustomNode({
-            graph: graph,
+            graph: graph.current,
             // Node,
             // ...nodeProps,
         });
-        graph.data(data);
-        graph.render();
-        // graph.setMode('edit');
+        graph.current.data(data);
+        graph.current.render();
     }, [])
     return <form
         tabIndex="0"

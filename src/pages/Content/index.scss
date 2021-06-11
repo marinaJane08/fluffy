@@ -55,7 +55,7 @@ $line-color:#71cb2d;
         height: 100%;
         background-color: $bg-color;
         z-index: 99999999;
-        transition: all 1s;
+        transition: all 0.5s;
 
         &-show {
             right: 0;

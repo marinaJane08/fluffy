@@ -91,7 +91,7 @@ export const getElementToPage = (el, dir = 'offsetTop') => {
     return el[dir]
 }
 // 时间戳
-export const getTimeStamp = () => new Date().getTime()
+export const getTimeStamp = () => `${new Date().getTime()}`
 /**
  * 格式化时长
  * @param {moment时长} duration 
