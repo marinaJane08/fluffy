@@ -29,14 +29,17 @@ const data = {
         },
     ],
 };
-const CustomNode = forwardRef(({ onChangeSize, onClick }, ref) => {
+const CustomNode = forwardRef(({ onChangeSize, onClick, data = {}, onUpdateData }, ref) => {
     const wrapRef = useRef();
     const [wrapSize, setWrapSize] = useState(null);
-    const [data, setData] = useState({});
+    const [text, setText] = useState(data.text);
     const updateSize = () => wrapRef?.current && setWrapSize({
         width: wrapRef.current.clientWidth + 10,
         height: wrapRef.current.clientHeight + 10,
     });
+    useEffect(() => {
+        setText(data.text);
+    }, [data.text]);
     useEffect(() => {
         // 容器初始化更新size
         // setTimeout(() => {
@@ -48,7 +51,7 @@ const CustomNode = forwardRef(({ onChangeSize, onClick }, ref) => {
         wrapSize && onChangeSize(wrapSize);
     }, [wrapSize]);
     useImperativeHandle(ref, () => ({
-        update: setData,
+        update: () => { },
     }));
     return <foreignObject
         // position用于布局控制，overflow设置才能显示内容，padding设置内容边缘
@@ -62,14 +65,17 @@ const CustomNode = forwardRef(({ onChangeSize, onClick }, ref) => {
                 userSelect: 'none', cursor: 'default',
                 boxShadow: 'rgb(170, 170, 170) 1px 2px 6px'
             }}
-        // onClick={onClick}
+            onClick={onClick}
         >
             <div contentEditable="true"
-                onInput={() => {
+                onInput={(e) => {
                     updateSize();
                 }}
+                onBlur={() => {
+                    log(text)
+                }}
                 style={{ width: 50, padding: 5 }}
-            >{data.text}</div>
+            >{text}</div>
         </div>
     </foreignObject>
 })
@@ -81,7 +87,6 @@ const registerCustomNode = ({ graph }) => {
         'dom-node',
         {
             draw: (cfg, group) => {
-                log(cfg.width, 'draw')
                 let dragRect = group.addShape('rect', {
                     attrs: {
                         width: cfg.width,
@@ -115,6 +120,9 @@ const registerCustomNode = ({ graph }) => {
                     }}
                     onClick={() => {
                         graph.setItemState(cfg.id, 'active', true);
+                    }}
+                    onUpdateData={() => {
+
                     }}
                 />, wrap.cfg.el);
                 return dragRect
@@ -160,13 +168,15 @@ export default ({ on }) => {
         },
         onCanvasDblClick(e) {
             const canvas = graph.current.get('canvas');
+            // 坐标转换（平移缩放后会改变）
+            let point = graph.current.getPointByCanvas(e.canvasX, e.canvasY);
             // 判断点击目标是否canvas
             if (e.originalEvent.target === canvas.cfg.el) {
                 // 新增节点
                 graph.current.addItem('node', {
                     id: getTimeStamp(),
-                    x: e.canvasX,
-                    y: e.canvasY
+                    x: point.x,
+                    y: point.y
                 });
             }
         }
@@ -222,6 +232,8 @@ export default ({ on }) => {
                         // 允许多选
                         this.multiple = true;
                         break;
+                    default:
+                        break;
                 }
             }
         },
@@ -231,6 +243,8 @@ export default ({ on }) => {
                     case KeyCode.CONTROL:
                         // 去除多选
                         this.multiple = false;
+                        break;
+                    default:
                         break;
                 }
             }
@@ -252,7 +266,6 @@ export default ({ on }) => {
     G6.registerBehavior('operate-item', {
         getEvents() {
             return {
-                'keydown': 'onKeyDown',
                 'keyup': 'onKeyUp',
             };
         },
@@ -410,8 +423,6 @@ export default ({ on }) => {
         })
         registerCustomNode({
             graph: graph.current,
-            // Node,
-            // ...nodeProps,
         });
         graph.current.data(data);
         graph.current.render();

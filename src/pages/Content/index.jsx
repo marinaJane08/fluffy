@@ -29,10 +29,11 @@ document.body.appendChild(host);
 // app的全局数据
 const HostContext = React.createContext();
 // 存储的所有数据
-chrome.storage.sync.get(null, (items) => {
+chrome.storage.local.get(null, (items) => {
     log(items)
 })
 // chrome.storage.sync.remove(`${location.origin + location.pathname}`);
+// chrome.storage.sync.clear();
 
 const Host = () => {
     const [state, dispatch] = useReducer((state, action) => {
@@ -90,7 +91,7 @@ const Host = () => {
                 let data = { ...state.data, ...action.payload };
                 if (data.root) {
                     // 更新数据
-                    chrome.storage.sync.set({ [pathKey]: data });
+                    chrome.storage.local.set({ [pathKey]: data });
                 } else {
                     // 清除数据
                     chrome.storage.sync.remove(pathKey);
@@ -124,12 +125,12 @@ const Host = () => {
     // 初始化时、路由改变时，还原root
     const restoreRoot = () => {
         let pathKey = location.origin + location.pathname;
-        chrome.storage.sync.get({ [pathKey]: {} }, (items) => {
+        chrome.storage.local.get({ [pathKey]: {} }, (items) => {
+            items[pathKey].root = null;
             if (items[pathKey]?.rootPath) {
                 try {
                     items[pathKey].root = eval(items[pathKey].rootPath);
                 } catch (error) {
-                    items[pathKey].root = null;
                     log('🍎解析容器出错')
                 }
             }
@@ -185,6 +186,7 @@ const Host = () => {
         // 获取初始化的on值
         chrome.storage.sync.get({ on: true }, (items) => {
             dispatch({ type: 'toggleAppOn', payload: items.on });
+            restoreRoot();
         });
 
         const tabHandler = {
@@ -202,6 +204,11 @@ const Host = () => {
             ? <div className="fluffy-operateBtn">
                 {!qiuzOn
                     ? <Fragment>
+                        <button onClick={() => {
+                            dispatch({ type: 'toggleRootShow', payload: false });
+                            dispatch({ type: 'toggleMind', payload: false });
+                            dispatch({ type: 'toggleQuiz', payload: false });
+                        }}>隐藏</button>
                         <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
                         {data.root && rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
                         {/* {rootShow && <button onClick={dispatch.bind(null, { type: 'toggleMind', payload: !mindOn })}>脑图</button>} */}
@@ -216,7 +223,7 @@ const Host = () => {
             : null
         }
         {/* 传on避免重复渲染 */}
-        <Mind on={mindOn && data.root && !qiuzOn} />
+        <Mind on={showHost && mindOn && data.root && !qiuzOn} />
         {appOn && <ChooseRoot />}
         {appOn && <Mark />}
     </HostContext.Provider>
