@@ -29,12 +29,9 @@ chrome.runtime.onConnect.addListener(function (port) {
 
 // 监听tab改变
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // 加载完成后
-    if (changeInfo.status === "complete") {
+    if (changeInfo.url) {// 路由改变
         chrome.tabs.sendMessage(tabId, { type: "restoreRoot" });
-    }
-    // 路由改变
-    if (changeInfo.url) {
+    } else if (changeInfo.status === "complete") {// 加载完成后
         chrome.tabs.sendMessage(tabId, { type: "restoreRoot" });
     }
 })

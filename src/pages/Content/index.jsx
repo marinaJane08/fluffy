@@ -1,6 +1,7 @@
-import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, useContext } from 'react';
+import React, { useState, useEffect, Fragment, useCallback, useReducer, useRef, forwardRef, useImperativeHandle, useContext } from 'react';
 import { render } from 'react-dom';
 import Mind from './Mind';
+import HostContext from './store';
 import { removeClass, addClass, getEvalRoot, getTimeStamp, formatDuration, findElParent, copyRemoveContents } from '@/utils';
 import KeyCode from '@/utils/KeyCode.js';
 import './index.scss';
@@ -26,19 +27,30 @@ document.body.appendChild(mock);
 let host = document.createElement('div');
 document.body.appendChild(host);
 
-// app的全局数据
-const HostContext = React.createContext();
 // 存储的所有数据
 chrome.storage.local.get(null, (items) => {
     log(items)
 })
-// chrome.storage.sync.remove(`${location.origin + location.pathname}`);
+// chrome.storage.local.remove(`${location.origin + location.pathname}`);
 // chrome.storage.sync.clear();
 
 const Host = () => {
+    const mindRef = useRef();
+    const markRef = useRef();
+
     const [state, dispatch] = useReducer((state, action) => {
+        let pathKey = location.origin + location.pathname;
         switch (action.type) {
             case 'toggleAppOn':
+                if (action.payload) {
+                    state.rootShow = true;
+                    state.mindOn = true;
+                } else {
+                    state.chooseOn = false;
+                    state.rootShow = false
+                    state.mindOn = false
+                    state.qiuzOn = false
+                }
                 return {
                     ...state,
                     appOn: action.payload
@@ -54,18 +66,6 @@ const Host = () => {
                     mindOn: action.payload
                 }
             case 'toggleRootShow':
-                // 显示还原样式
-                if (action.payload) {
-                    if (state.data.root) {
-                        addClass(state.data.root, 'fluffy-root');
-                        if (state.data.dataHTML) state.data.root.innerHTML = state.data.dataHTML;
-                    }
-                } else {
-                    if (state.data.root) {
-                        removeClass(state.data.root, 'fluffy-root');
-                        if (state.data.originHTML) state.data.root.innerHTML = state.data.originHTML;
-                    }
-                }
                 return {
                     ...state,
                     rootShow: action.payload
@@ -86,7 +86,6 @@ const Host = () => {
                     qiuzOn: action.payload
                 }
             case 'changeData':
-                let pathKey = location.origin + location.pathname;
                 // data是对象，所以此处是合并
                 let data = { ...state.data, ...action.payload };
                 if (data.root) {
@@ -109,6 +108,44 @@ const Host = () => {
                     ...state,
                     curMark: state.curMark
                 }
+            case 'clearData':
+                removeClass(state.data.root, 'fluffy-root');
+                if (state.data.originHTML) state.data.root.innerHTML = state.data.originHTML;
+                return {
+                    ...state,
+                    rootShow: false,
+                    mindOn: false,
+                    qiuzOn: false,
+                    chooseOn: false,
+                    data: { root: null, rootPath: '', originHTML: '', dataHTML: '', marks: { nodes: [], edges: [] } }
+                }
+            case 'peerCommunicate':
+                switch (action.payload.type) {
+                    case 'removeNodes':
+                        if (action.payload.target === 'Mind') {
+                            let markIndex = action.payload.mark.getAttribute('data-index');
+                            state.data.marks.nodes.splice(markIndex, 1);
+                            mindRef.current.removeNodes(action.payload.mark.getAttribute('data-id'));
+                        } else {
+                            state.data.marks = action.payload.marks;
+                            markRef.current.removeNodes(action.payload.id);
+                        }
+                        break;
+                    case 'addNodes':
+                        if (action.payload.target === 'Mind') {
+                            mindRef.current.addNodes(action.payload.data);
+                        } else {
+                            state.data.marks = action.payload.marks;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                // 保存dataHTML
+                state.data.dataHTML = state.data.root?.innerHTML;
+                // 更新数据
+                chrome.storage.local.set({ [pathKey]: state.data });
+                return state;
             default:
                 return state;
         }
@@ -118,12 +155,11 @@ const Host = () => {
         rootShow: false,//是否显示文章容器
         qiuzOn: false,//测试模式
         mindOn: false,//显示脑图
-        data: { root: null, rootPath: '', originHTML: '', dataHTML: '' },//数据
+        data: { root: null, rootPath: '', originHTML: '', dataHTML: '', marks: { nodes: [], edges: [] } },//数据
         curMark: useRef(),//当前选中的mark
     });
     const { appOn, chooseOn, rootShow, qiuzOn, mindOn, data } = state;
-    // 初始化时、路由改变时，还原root
-    const restoreRoot = () => {
+    const getData = (callback) => {
         let pathKey = location.origin + location.pathname;
         chrome.storage.local.get({ [pathKey]: {} }, (items) => {
             items[pathKey].root = null;
@@ -131,35 +167,14 @@ const Host = () => {
                 try {
                     items[pathKey].root = eval(items[pathKey].rootPath);
                 } catch (error) {
-                    log('🍎解析容器出错')
+                    log('🍎解析容器出错 ')
                 }
             }
-            dispatch({ type: 'changeData', payload: items[pathKey] });
-            if (appOn && items[pathKey].root) {
-                dispatch({ type: 'toggleRootShow', payload: true });
-            }
+            callback(items[pathKey]);
         });
     }
-    // 清空数据
-    const clearData = () => {
-        // 顺序（先隐藏root，再清空数据）
-        dispatch({ type: 'toggleChoose', payload: false });
-        dispatch({ type: 'toggleRootShow', payload: false });
-        // 清除root，将root设为null
-        dispatch({ type: 'changeData', payload: { root: null, rootPath: '', originHTML: '', dataHTML: '' } });
-    }
     useEffect(() => {
-        if (!appOn) {
-            dispatch({ type: 'toggleChoose', payload: false });
-            dispatch({ type: 'toggleRootShow', payload: false });
-            dispatch({ type: 'toggleMind', payload: false });
-            dispatch({ type: 'toggleQuiz', payload: false });
-        } else {
-            dispatch({ type: 'toggleRootShow', payload: true });
-            dispatch({ type: 'toggleMind', payload: true });
-        }
-    }, [appOn]);
-    useEffect(() => {
+        // 显示还原样式
         if (chooseOn) {
             // 选择前将root样式还原
             dispatch({ type: 'toggleRootShow', payload: false });
@@ -167,9 +182,23 @@ const Host = () => {
             // 退出选择后加上root样式
             if (data.root) {
                 dispatch({ type: 'toggleRootShow', payload: true });
+                dispatch({ type: 'toggleMind', payload: true });
             }
         }
-    }, [chooseOn]);
+    }, [chooseOn, data]);
+    useEffect(() => {
+        if (rootShow) {
+            if (data.root) {
+                addClass(data.root, 'fluffy-root');
+                if (data.dataHTML) data.root.innerHTML = data.dataHTML;
+            }
+        } else {
+            if (data.root) {
+                removeClass(data.root, 'fluffy-root');
+                if (data.originHTML) data.root.innerHTML = data.originHTML;
+            }
+        }
+    }, [rootShow, data]);
     useEffect(() => {
         const handler = {
             on: (newValue) => {
@@ -183,56 +212,212 @@ const Host = () => {
                 handler[key] && handler[key](changes[key].newValue, changes[key].oldValue);
             }
         });
-        // 获取初始化的on值
-        chrome.storage.sync.get({ on: true }, (items) => {
-            dispatch({ type: 'toggleAppOn', payload: items.on });
-            restoreRoot();
-        });
 
         const tabHandler = {
             // 路由改变
-            restoreRoot,
+            restoreRoot: () => {
+                chrome.storage.local.get({ on: true }, (items) => {
+                    dispatch({ type: 'toggleAppOn', payload: items.on });
+                    getData((data) => {
+                        dispatch({ type: 'changeData', payload: data });
+                        if (items.on && data.root) {
+                            dispatch({ type: 'toggleRootShow', payload: true });
+                        }
+                    })
+                });
+            },
         }
         // 监听后台通信
         chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             tabHandler[msg.type] && tabHandler[msg.type](msg.payload);
         });
     }, []);
-    const showHost = appOn && !chooseOn;
     return <HostContext.Provider value={{ state, dispatch }}>
-        {showHost
+        {!chooseOn
             ? <div className="fluffy-operateBtn">
-                {!qiuzOn
-                    ? <Fragment>
-                        <button onClick={() => {
-                            dispatch({ type: 'toggleRootShow', payload: false });
-                            dispatch({ type: 'toggleMind', payload: false });
-                            dispatch({ type: 'toggleQuiz', payload: false });
-                        }}>隐藏</button>
-                        <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
-                        {data.root && rootShow && <button onClick={clearData.bind(null)}>清空数据</button>}
-                        {/* {rootShow && <button onClick={dispatch.bind(null, { type: 'toggleMind', payload: !mindOn })}>脑图</button>} */}
-                    </Fragment>
+                <button onClick={dispatch.bind(null, { type: 'toggleAppOn', payload: !appOn })}>{appOn ? '隐藏' : '显示'}</button>
+                {appOn ? <Fragment>
+                    {!qiuzOn
+                        ? <Fragment>
+                            <button onClick={dispatch.bind(null, { type: 'toggleChoose', payload: !chooseOn })}>选择容器</button>
+                            {data.root && rootShow && <button onClick={dispatch.bind(null, { type: 'clearData' })}>清空数据</button>}
+                            {/* {rootShow && <button onClick={dispatch.bind(null, { type: 'toggleMind', payload: !mindOn })}>脑图</button>} */}
+                        </Fragment>
+                        : null
+                    }
+                    {data.root && rootShow && <Fragment>
+                        <button onClick={dispatch.bind(null, { type: 'toggleQuiz', payload: !qiuzOn })}>测验模式</button>
+                        {qiuzOn && <Quiz />}
+                    </Fragment>}
+                </Fragment>
                     : null
                 }
-                {data.root && rootShow && <Fragment>
-                    <button onClick={dispatch.bind(null, { type: 'toggleQuiz', payload: !qiuzOn })}>测验模式</button>
-                    {qiuzOn && <Quiz />}
-                </Fragment>}
             </div>
             : null
         }
         {/* 传on避免重复渲染 */}
-        <Mind on={showHost && mindOn && data.root && !qiuzOn} />
+        <Mind on={appOn && !chooseOn && mindOn && data.root && rootShow && !qiuzOn} data={data.marks} ref={mindRef} />
+        {appOn && <Mark ref={markRef} />}
         {appOn && <ChooseRoot />}
-        {appOn && <Mark />}
     </HostContext.Provider>
 }
+
+// 高亮
+const Mark = forwardRef(({ }, ref) => {
+    const { state, dispatch } = useContext(HostContext);
+    const { data, rootShow, curMark, qiuzOn } = state;
+    let on = rootShow && !qiuzOn && data.root;
+
+    const restoreMark = (mark) => {//还原mark
+        if (mark) {
+            let markId = mark.getAttribute('data-id');
+            if (markId) {
+                let origin = document.getElementById(`fluffy-origin-${markId}`);
+                mark.outerHTML = origin.innerHTML;
+                origin.remove();
+            }
+        }
+    }
+
+    useImperativeHandle(ref, () => ({
+        removeNodes: (markId) => {
+            let targetMark = document.getElementById(`fluffy-wrap-${markId}`);
+            restoreMark(targetMark);
+        },
+    }));
+
+    useEffect(() => {
+        let startIndex = 0;//按下alt键时的index
+        let endIndex = 0;//抬起alt键时的index
+        let altPressed = false;//按键中
+
+        const keydown = (evt) => {// 键盘落
+            if (on) {
+                if (evt.keyCode === KeyCode.Alt) {
+                    evt.preventDefault();
+                    startIndex = window.getSelection().toString().length;
+                    altPressed = true;
+                }
+            }
+        };
+        const keyup = (evt) => {// 键盘起
+            if (on) {
+                if (evt.keyCode === KeyCode.Alt) {
+                    // point结束
+                    evt.preventDefault();
+                    endIndex = window.getSelection().toString().length;
+                    altPressed = false;
+                }
+                if (evt.keyCode === KeyCode.BACK) {
+                    evt.preventDefault();
+                    if (curMark.current) {
+                        // 通知Mind
+                        dispatch({ type: 'peerCommunicate', payload: { target: 'Mind', type: 'removeNodes', mark: curMark.current } });
+                        // 删除高亮
+                        restoreMark(curMark.current);
+                        // 更新HMTL
+                        dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
+                    }
+                }
+            }
+        };
+        const mouseup = (evt) => {//鼠标起
+            if (on) {
+                if (altPressed) {
+                    endIndex = window.getSelection().toString().length;
+                }
+                let sl = window.getSelection();
+                if (sl.toString()) {
+                    let range = sl.getRangeAt(0);// range对象
+                    // 包裹元素
+                    let wrap = document.createElement("mark");
+                    wrap.className = `fluffy-itemWrap`;
+                    // 备份元素
+                    let origin = document.createElement("div");
+                    origin.className = 'fluffy-origin';
+                    // markId
+                    let markId = getTimeStamp();
+                    // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
+                    let endMarkWrap = findElParent(range.endContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
+                    let startMarkWrap = findElParent(range.startContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
+                    if (startMarkWrap) {
+                        // index要加上扩张的部分
+                        startIndex += range.startOffset;
+                        endIndex += range.startOffset;
+                        // 选区范围开头框住该mark
+                        range.setStartBefore(startMarkWrap);
+                    }
+                    if (endMarkWrap) {
+                        // 选区范围结尾框住该mark
+                        range.setEndAfter(endMarkWrap);
+                    }
+                    let str = range.toString();
+                    // 添加mark内容
+                    let sliceEndIndex = startIndex + (endIndex - startIndex);
+                    let pointHTML = `${str.slice(0, startIndex)}<span class="fluffy-point" spellcheck="false" data-value="${str.slice(startIndex, sliceEndIndex)}">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}`;
+                    wrap.innerHTML = `${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}`;
+                    // 清空整个选区内容
+                    let extractContents = range.extractContents(),
+                        cloneChild = extractContents.childNodes;
+                    Array.from(cloneChild).map(item => {
+                        origin.appendChild(item);
+                    })
+                    // 还原选中
+                    restoreMarks(origin);
+                    // mark原文
+                    wrap.id = `fluffy-wrap-${markId}`;
+                    wrap.setAttribute('data-id', markId);
+                    wrap.setAttribute('data-index', data.marks.nodes.length);
+                    range.insertNode(wrap);
+                    // 原文添加到root里（便于还原嵌套型mark）
+                    origin.id = `fluffy-origin-${markId}`;
+                    data.root.appendChild(origin);
+                    // 清除选中
+                    sl && sl.removeAllRanges();
+                    // 更新HMTL和marks
+                    dispatch({ type: 'peerCommunicate', payload: { target: 'Mind', type: 'addNodes', data: { id: markId, data: { text: origin.innerText } } } });
+                    dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
+                } else {
+                    let hasMarkParent = findElParent(evt.target, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1)
+                    if (hasMarkParent) {
+                        // 高亮选中
+                        dispatch({ type: 'changeCurMark', payload: hasMarkParent });
+                    } else {
+                        // 点击非高亮还原
+                        dispatch({ type: 'changeCurMark', payload: null });
+                    }
+                }
+                startIndex = 0;
+                endIndex = 0;
+            }
+        };
+        const restoreMarks = (item) => {//还原嵌套的mark
+            if (item.children) {
+                // 遍历出mark并还原
+                const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item));
+                fluffyItems.map(i_item => {
+                    restoreMark(i_item);
+                })
+            }
+            return item?.className?.indexOf('fluffy-itemWrap') > -1 ? item : false
+        }
+
+        if (data.root) data.root.addEventListener('mouseup', mouseup);
+        document.addEventListener('keydown', keydown);
+        document.addEventListener('keyup', keyup);
+        return () => {
+            if (data.root) data.root.removeEventListener('mouseup', mouseup);
+            document.removeEventListener('keydown', keydown);
+            document.removeEventListener('keyup', keyup);
+        }
+    }, [on, data.marks.nodes]);
+    return <mark></mark>
+})
 
 // 选择根容器
 const ChooseRoot = () => {
     const { state, dispatch } = useContext(HostContext);
-    const { chooseOn } = state;
+    const { chooseOn, data } = state;
     const [coord, setCoord] = useState([-100, -100]);
     const hoverTarget = useRef();
     const canChoose = (evt) => {//判断能否进行选择
@@ -276,7 +461,7 @@ const ChooseRoot = () => {
             hoverTarget.current = null;
             // 设置|重置root
             let root = evt.target;
-            dispatch({ type: 'changeData', payload: { root, rootPath: getEvalRoot(root), originHTML: root.innerHTML, dataHTML: root.innerHTML } });
+            dispatch({ type: 'changeData', payload: { root, rootPath: getEvalRoot(root), originHTML: root.innerHTML, dataHTML: root.innerHTML, marks: { nodes: [], edges: [] } } });
             dispatch({ type: 'toggleChoose', payload: false });
         }
     }, [chooseOn]);
@@ -315,140 +500,6 @@ const ChooseRoot = () => {
         className="fluffy-mouseTracker"
         style={{ left: `${(coord[0] + 5)}px`, top: `${(coord[1] + 10)}px`, backgroundColor: '#4CAF50' }}
     ></div >
-}
-
-const Mark = () => {
-    const { state, dispatch } = useContext(HostContext);
-    const { data, rootShow, curMark, qiuzOn } = state;
-    let on = rootShow && data.root && !qiuzOn;
-    useEffect(() => {
-        let startIndex = 0;//按下alt键时的index
-        let endIndex = 0;//抬起alt键时的index
-        let altPressed = false;//按键中
-
-        const keydown = (evt) => {// 键盘落
-            if (on) {
-                if (evt.keyCode === KeyCode.Alt) {
-                    evt.preventDefault();
-                    startIndex = window.getSelection().toString().length;
-                    altPressed = true;
-                }
-            }
-        };
-        const keyup = (evt) => {// 键盘起
-            if (on) {
-                if (evt.keyCode === KeyCode.Alt) {
-                    // point结束
-                    evt.preventDefault();
-                    endIndex = window.getSelection().toString().length;
-                    altPressed = false;
-                }
-                if (evt.keyCode === KeyCode.BACK) {
-                    evt.preventDefault();
-                    if (curMark.current) {
-                        // 删除高亮
-                        restoreMark(curMark.current);
-                        // 更新HMTL
-                        dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
-                    }
-                }
-            }
-        };
-        const mouseup = (evt) => {//鼠标起
-            if (on) {
-                if (altPressed) {
-                    endIndex = window.getSelection().toString().length;
-                }
-                let sl = window.getSelection();
-                if (sl.toString()) {
-                    let range = sl.getRangeAt(0);// range对象
-                    // 包裹元素
-                    let wrap = document.createElement("mark");
-                    wrap.className = `fluffy-itemWrap`;
-                    // 备份元素
-                    let origin = document.createElement("div");
-                    origin.className = 'fluffy-origin';
-                    // markId
-                    let markId = new Date().getTime();
-                    // 判断选区的开头或者结尾有没有wrap，有的话扩大选区到该wrap，并且将该wrap作为更新对象
-                    let endMarkWrap = findElParent(range.endContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
-                    let startMarkWrap = findElParent(range.startContainer, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1);
-                    if (startMarkWrap) {
-                        // index要加上扩张的部分
-                        startIndex += range.startOffset;
-                        endIndex += range.startOffset;
-                        // 选区范围开头框住该mark
-                        range.setStartBefore(startMarkWrap);
-                    }
-                    if (endMarkWrap) {
-                        // 选区范围结尾框住该mark
-                        range.setEndAfter(endMarkWrap);
-                    }
-                    let str = range.toString();
-                    // 添加mark内容
-                    let sliceEndIndex = startIndex + (endIndex - startIndex);
-                    let pointHTML = `${str.slice(0, startIndex)}<span class="fluffy-point" spellcheck="false" data-value="${str.slice(startIndex, sliceEndIndex)}">${str.slice(startIndex, sliceEndIndex)}</span>${str.slice(sliceEndIndex)}`;
-                    wrap.innerHTML = `${str.slice(startIndex, sliceEndIndex) ? pointHTML : str}`;
-                    // 清空整个选区内容
-                    let extractContents = range.extractContents(),
-                        cloneChild = extractContents.childNodes;
-                    Array.from(cloneChild).map(item => {
-                        origin.appendChild(item);
-                    })
-                    // 还原选中
-                    restoreMarks(origin);
-                    // mark原文
-                    wrap.setAttribute('data-id', markId);
-                    range.insertNode(wrap);
-                    // 原文添加到root里（便于还原嵌套型mark）
-                    origin.id = `fluffy-origin-${markId}`;
-                    data.root.appendChild(origin);
-                    // 清除选中
-                    sl && sl.removeAllRanges();
-                    // 更新HMTL
-                    dispatch({ type: 'changeData', payload: { dataHTML: data.root.innerHTML } });
-                } else {
-                    let hasMarkParent = findElParent(evt.target, (node) => node?.className?.indexOf('fluffy-itemWrap') > -1)
-                    if (hasMarkParent) {
-                        // 高亮选中
-                        dispatch({ type: 'changeCurMark', payload: hasMarkParent });
-                    } else {
-                        // 点击非高亮还原
-                        dispatch({ type: 'changeCurMark', payload: null });
-                    }
-                }
-                startIndex = 0;
-                endIndex = 0;
-            }
-        };
-        const restoreMarks = (item) => {//还原嵌套的mark
-            if (item.children) {
-                // 遍历出mark并还原
-                const fluffyItems = Array.from(item.children).filter(i_item => restoreMarks(i_item));
-                fluffyItems.map(i_item => {
-                    restoreMark(i_item);
-                })
-            }
-            return item?.className?.indexOf('fluffy-itemWrap') > -1 ? item : false
-        }
-        const restoreMark = (mark) => {//还原mark
-            let markId = mark.getAttribute('data-id');
-            if (markId) {
-                let origin = document.getElementById(`fluffy-origin-${markId}`);
-                mark.outerHTML = origin.innerHTML;
-                origin.remove();
-            }
-        }
-        if (data.root) data.root.addEventListener('mouseup', mouseup);
-        document.addEventListener('keydown', keydown);
-        document.addEventListener('keyup', keyup);
-        return () => {
-            if (data.root) data.root.removeEventListener('mouseup', mouseup);
-            document.removeEventListener('keydown', keydown);
-            document.removeEventListener('keyup', keyup);
-        }
-    }, [on]);
-    return <mark></mark>
 }
 
 const Quiz = () => {

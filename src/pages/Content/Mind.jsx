@@ -1,19 +1,21 @@
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, Fragment, createRef } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, Fragment, createRef, useContext } from 'react';
 import ReactDOM, { render } from 'react-dom';
 import G6 from '@antv/g6';
+import HostContext from './store';
 import KeyCode from '@/utils/KeyCode.js';
 import { removeClass, addClass, getEvalRoot, getTimeStamp } from '@/utils';
 
 const log = console.log;
 const preventDefault = (e) => e.preventDefault();
 const toolbar = new G6.ToolBar();
-const data = {
+const staticData = {
     // 点集
     nodes: [
         {
             id: 'node1', // String，该节点存在则必须，节点的唯一标识
             x: 100, // Number，可选，节点位置的 x 值
             y: 200, // Number，可选，节点位置的 y 值
+            data: { text: 'no1' }
         },
         {
             id: 'node2', // String，该节点存在则必须，节点的唯一标识
@@ -67,12 +69,14 @@ const CustomNode = forwardRef(({ onChangeSize, onClick, data = {}, onUpdateData 
             }}
             onClick={onClick}
         >
-            <div contentEditable="true"
+            <div
+                suppressContentEditableWarning
+                contentEditable="true"
                 onInput={(e) => {
                     updateSize();
                 }}
                 onBlur={() => {
-                    log(text)
+                    onUpdateData({ text })
                 }}
                 style={{ width: 50, padding: 5 }}
             >{text}</div>
@@ -121,8 +125,11 @@ const registerCustomNode = ({ graph }) => {
                     onClick={() => {
                         graph.setItemState(cfg.id, 'active', true);
                     }}
-                    onUpdateData={() => {
-
+                    data={cfg.data}
+                    onUpdateData={(data) => {
+                        graph.updateItem(cfg.id, {
+                            data: { ...cfg.data, ...data }
+                        }, false)
                     }}
                 />, wrap.cfg.el);
                 return dragRect
@@ -131,7 +138,6 @@ const registerCustomNode = ({ graph }) => {
             },
             update: (cfg, item) => {
                 // 更新对应node的配置项（找到对应的nodeRef）
-                log(cfg, item, 'update')
             },
             setState: (name, value, item) => {
                 const dragRect = item.getKeyShape();
@@ -150,13 +156,13 @@ const registerCustomNode = ({ graph }) => {
                     default:
                         break;
                 }
-                log('setState', name, value, item)
             }
         },
         'react',
     );
 }
-export default ({ on }) => {
+export default forwardRef(({ on, data }, ref) => {
+    const { state, dispatch } = useContext(HostContext);
     const graphRef = useRef();
     const graph = useRef();
     // 双击画布新增节点
@@ -262,6 +268,44 @@ export default ({ on }) => {
             });
         },
     });
+    const addNode = (type, cfg = {
+        id: getTimeStamp(),
+    }) => {
+        // 新增节点
+        let activeNode = graph.current.findAllByState('node', 'active');
+        // 当前只有一个高亮节点
+        if (activeNode.length > 0) {
+            activeNode = activeNode[0];
+            if (type === 'sub') {
+                let sorceModel = activeNode.getModel();
+                // 新增子节点
+                let newNode = graph.current.addItem('node', { x: sorceModel.x, y: sorceModel.y, ...cfg });
+                // 添加子节点连线
+                graph.current.addItem('edge', {
+                    source: sorceModel.id,
+                    target: newNode.getModel().id,
+                    type: 'line',
+                });
+            } else if (type === 'peer') {
+                let parentNodes = activeNode.getNeighbors('source');
+                log('该节点没有父节点')
+                if (parentNodes.length > 0) {
+                    let sorceModel = parentNodes[0].getModel();
+                    // 新增同级节点
+                    let newNode = graph.current.addItem('node', { x: sorceModel.x, y: sorceModel.y, ...cfg });
+                    // 添加同级节点连线
+                    graph.current.addItem('edge', {
+                        source: sorceModel.id,
+                        target: newNode.getModel().id,
+                        type: 'line',
+                    });
+                }
+            }
+            // graph.layout();
+        } else {
+            graph.current.addItem('node', cfg);
+        }
+    }
     // 新增、删除选中节点
     G6.registerBehavior('operate-item', {
         getEvents() {
@@ -277,14 +321,17 @@ export default ({ on }) => {
                         this.removeNodes();
                         // 删除高亮连接
                         this.removeEdges();
+                        preventDefault(e);
                         break;
                     case KeyCode.TAB:
                         // 新增子节点
-                        this.addNode('sub');
+                        addNode('sub');
+                        preventDefault(e);
                         break;
                     case KeyCode.ENTER:
                         // 新增同级节点
-                        this.addNode('peer');
+                        addNode('peer');
+                        preventDefault(e);
                         break;
                     default:
                         break;
@@ -303,49 +350,15 @@ export default ({ on }) => {
                 graph.current.removeItem(edge);
             });
         },
-        addNode(type) {
-            // 新增节点
-            let activeNode = graph.current.findAllByState('node', 'active');
-            // 当前只有一个高亮节点
-            if (activeNode.length > 0) {
-                activeNode = activeNode[0];
-                if (type === 'sub') {
-                    let sorceModel = activeNode.getModel();
-                    // 新增子节点
-                    let newNode = graph.current.addItem('node', {
-                        isSub: true,
-                        id: getTimeStamp(),
-                        x: sorceModel.x,
-                        y: sorceModel.y
-                    });
-                    // 添加子节点连线
-                    graph.current.addItem('edge', {
-                        source: sorceModel.id,
-                        target: newNode.getModel().id,
-                        type: 'line',
-                    });
-                } else if (type === 'peer') {
-                    let parentNodes = activeNode.getNeighbors('source');
-                    if (parentNodes.length > 0) {
-                        let sorceModel = parentNodes[0].getModel();
-                        // 新增同级节点
-                        let newNode = graph.current.addItem('node', {
-                            id: getTimeStamp(),
-                            x: sorceModel.x,
-                            y: sorceModel.y
-                        });
-                        // 添加同级节点连线
-                        graph.current.addItem('edge', {
-                            source: sorceModel.id,
-                            target: newNode.getModel().id,
-                            type: 'line',
-                        });
-                    }
-                }
-                // graph.layout();
-            }
-        }
     });
+    useImperativeHandle(ref, () => ({
+        removeNodes: (id) => {
+            graph.current.removeItem(id);
+        },
+        addNodes: (cfg) => {
+            addNode('sub', cfg);
+        }
+    }));
     useEffect(() => {
         graph.current = new G6.Graph({
             container: ReactDOM.findDOMNode(graphRef.current),
@@ -402,6 +415,8 @@ export default ({ on }) => {
             },
             defaultNode: {
                 type: 'dom-node',
+                x: 0,
+                y: 0,
                 width: 1,
                 height: 1,
                 size: [50, 50],
@@ -426,7 +441,21 @@ export default ({ on }) => {
         });
         graph.current.data(data);
         graph.current.render();
-    }, [])
+
+        graph.current.on('afteradditem', (e) => {
+            dispatch({ type: 'peerCommunicate', payload: { target: 'Mark', type: 'addNodes', marks: graph.current.save() } });
+            // 调用layout或者changeData重新进行布局
+            // this.graph.layout(this.saveData());
+            // 聚焦新增的节点
+            // this.graph.focusItem(e.item);
+        });
+        graph.current.on('afterremoveitem', (e) => {
+            dispatch({ type: 'peerCommunicate', payload: { target: 'Mark', type: 'removeNodes', id: e.item.id, marks: graph.current.save() } });
+        });
+    }, []);
+    useEffect(() => {
+        graph.current.changeData(data);
+    }, [data.nodes, data.edges]);
     return <form
         tabIndex="0"
         ref={graphRef}
@@ -434,4 +463,4 @@ export default ({ on }) => {
         onFocus={e => document.addEventListener('contextmenu', preventDefault)}
         onBlur={e => document.removeEventListener('contextmenu', preventDefault)}
     ></form>
-}
+})

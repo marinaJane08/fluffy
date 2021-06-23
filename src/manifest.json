@@ -2,7 +2,10 @@
   "manifest_version": 2,
   "name": "fluffy",
   "background": {
-    "service_worker": "background.bundle.js"
+    "scripts": [
+      "background.bundle.js"
+    ],
+    "persistent": false
   },
   "browser_action": {
     "default_popup": "popup.html",
